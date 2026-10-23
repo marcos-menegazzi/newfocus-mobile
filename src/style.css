@@ -39,3 +39,12 @@ body {
 /* prevent iOS rubber-band interfering with edge-swipe */
 .safe-top { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+@layer components {
+  .input {
+    @apply mt-1 w-full rounded-xl bg-navy-800 border border-navy-600 px-4 py-3 text-white text-base placeholder-ink-400 focus:outline-none focus:ring-2 focus:ring-accent-500;
+  }
+  .btn-primary {
+    @apply rounded-xl bg-accent-500 text-navy-950 font-semibold py-3 px-4 active:scale-[0.98] transition disabled:opacity-50;
+  }
+}
