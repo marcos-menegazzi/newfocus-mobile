@@ -7,6 +7,7 @@ import ScreenHeader from '../components/ScreenHeader.vue'
 import { query } from '../db/connection'
 import { formatReal } from '../lib/format'
 import { useAuthStore } from '../stores/auth'
+import { useToast } from '../composables/useToast'
 
 const COLUMNS: Record<string, string> = {
   descred: 'descred',
@@ -30,6 +31,7 @@ interface EmpresaRow {
 }
 
 const auth = useAuthStore()
+const { notify } = useToast()
 
 const col = ref('descred')
 const positivado = ref('todos')
@@ -52,40 +54,45 @@ function monthBounds(): [string, string] {
 
 async function buscar() {
   loading.value = true
-  const [start, end] = monthBounds()
-  const params: unknown[] = [start, end]
+  try {
+    const [start, end] = monthBounds()
+    const params: unknown[] = [start, end]
 
-  const estoque = auth.usuario?.estoque === 'S' ? ' AND e.estoque > 0' : ''
-  const centralizado = empresa.value ? '' : " AND centralizado <> 'S'"
+    const estoque = auth.usuario?.estoque === 'S' ? ' AND e.estoque > 0' : ''
+    const centralizado = empresa.value ? '' : " AND centralizado <> 'S'"
 
-  let filterEmpresa = ''
-  if (empresa.value) {
-    filterEmpresa = ' AND e.empresa = ?'
-    params.push(empresa.value)
+    let filterEmpresa = ''
+    if (empresa.value) {
+      filterEmpresa = ' AND e.empresa = ?'
+      params.push(empresa.value)
+    }
+
+    let searchClause = ''
+    const term = search.value.trim()
+    if (term) {
+      searchClause = ` AND p.${COLUMNS[col.value]} LIKE ?`
+      params.push(`%${term}%`)
+    }
+
+    const select = `SELECT p.codigo, sum(e.estoque) AS estoque, p.${COLUMNS[col.value]} AS descvis, p.comprado, (SELECT COUNT(*) FROM HISTVENDA H INNER JOIN HISTITENS I ON H.LANCTO = I.LANCTO INNER JOIN PRODUTOS G ON G.CODIGO = I.PRODUTO WHERE H.DATA BETWEEN ? AND ? AND I.FATURAMENTO = 'S' AND I.PRODUTO = p.codigo) AS positivado FROM (SELECT * FROM produtos x GROUP BY x.codigo) p LEFT JOIN estoque e ON p.codigo = e.codigo${estoque}${centralizado} WHERE 1=1${filterEmpresa}${searchClause} GROUP BY p.codigo`
+
+    let sql: string
+    if (positivado.value === 'positivados') {
+      sql = `SELECT * FROM (${select}) q WHERE q.positivado > 0 ORDER BY q.descvis LIMIT ? OFFSET ?`
+    } else if (positivado.value === 'nao') {
+      sql = `SELECT * FROM (${select}) q WHERE q.positivado = 0 ORDER BY q.descvis LIMIT ? OFFSET ?`
+    } else {
+      sql = `${select} ORDER BY descvis LIMIT ? OFFSET ?`
+    }
+
+    params.push(limit.value, page.value * limit.value)
+    produtos.value = await query<ProdutoRow>(sql, params)
+    searched.value = true
+  } catch (e) {
+    notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
+  } finally {
+    loading.value = false
   }
-
-  let searchClause = ''
-  const term = search.value.trim()
-  if (term) {
-    searchClause = ` AND p.${COLUMNS[col.value]} LIKE ?`
-    params.push(`%${term}%`)
-  }
-
-  const select = `SELECT p.codigo, sum(e.estoque) AS estoque, p.${COLUMNS[col.value]} AS descvis, p.comprado, (SELECT COUNT(*) FROM HISTVENDA H INNER JOIN HISTITENS I ON H.LANCTO = I.LANCTO INNER JOIN PRODUTOS G ON G.CODIGO = I.PRODUTO WHERE H.DATA BETWEEN ? AND ? AND I.FATURAMENTO = 'S' AND I.PRODUTO = p.codigo) AS positivado FROM (SELECT * FROM produtos x GROUP BY x.codigo) p LEFT JOIN estoque e ON p.codigo = e.codigo${estoque}${centralizado} WHERE 1=1${filterEmpresa}${searchClause} GROUP BY p.codigo`
-
-  let sql: string
-  if (positivado.value === 'positivados') {
-    sql = `SELECT * FROM (${select}) q WHERE q.positivado > 0 ORDER BY q.descvis LIMIT ? OFFSET ?`
-  } else if (positivado.value === 'nao') {
-    sql = `SELECT * FROM (${select}) q WHERE q.positivado = 0 ORDER BY q.descvis LIMIT ? OFFSET ?`
-  } else {
-    sql = `${select} ORDER BY descvis LIMIT ? OFFSET ?`
-  }
-
-  params.push(limit.value, page.value * limit.value)
-  produtos.value = await query<ProdutoRow>(sql, params)
-  searched.value = true
-  loading.value = false
 }
 
 async function loadEmpresas() {

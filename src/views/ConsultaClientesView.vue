@@ -61,22 +61,27 @@ function monthBounds(): [string, string] {
 
 async function buscar() {
   loading.value = true
-  const [start, end] = monthBounds()
-  let sql = BASE
-  const params: unknown[] = [start, end]
-  const term = search.value.trim()
-  if (term) {
-    sql += ` WHERE ${COLUMNS[col.value]} LIKE ?`
-    params.push(`%${term}%`)
+  try {
+    const [start, end] = monthBounds()
+    let sql = BASE
+    const params: unknown[] = [start, end]
+    const term = search.value.trim()
+    if (term) {
+      sql += ` WHERE ${COLUMNS[col.value]} LIKE ?`
+      params.push(`%${term}%`)
+    }
+    if (positivado.value === 'positivados') {
+      sql = `SELECT * FROM (${sql}) q WHERE q.positivado > 0`
+    } else if (positivado.value === 'nao') {
+      sql = `SELECT * FROM (${sql}) q WHERE q.positivado = 0`
+    }
+    clientes.value = await query<ClienteRow>(sql, params)
+    searched.value = true
+  } catch (e) {
+    notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
+  } finally {
+    loading.value = false
   }
-  if (positivado.value === 'positivados') {
-    sql = `SELECT * FROM (${sql}) q WHERE q.positivado > 0`
-  } else if (positivado.value === 'nao') {
-    sql = `SELECT * FROM (${sql}) q WHERE q.positivado = 0`
-  }
-  clientes.value = await query<ClienteRow>(sql, params)
-  searched.value = true
-  loading.value = false
 }
 
 onMounted(buscar)

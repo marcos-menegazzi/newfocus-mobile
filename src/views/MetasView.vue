@@ -8,6 +8,7 @@ import { call } from '../services/sync/context'
 import { childText, rowChildren } from '../services/sync/helpers'
 import { text } from '../services/soap'
 import { useAuthStore } from '../stores/auth'
+import { useToast } from '../composables/useToast'
 
 interface Opt {
   codigo: string
@@ -25,6 +26,7 @@ interface MetaRow {
 }
 
 const auth = useAuthStore()
+const { notify } = useToast()
 
 const dtInicial = ref(primeiroDiaMes())
 const dtFinal = ref(hoje())
@@ -100,23 +102,28 @@ async function buscar() {
   const u = auth.usuario
   if (!u) return
   loading.value = true
-  const doc = await call(
-    `P_RMTWEB01:EXEC(${u.codlic}, '${toBr(dtInicial.value)}', '${toBr(dtFinal.value)}', '${grupo.value}', '${marca.value}', '${faturamento.value}')`,
-  )
-  tipo.value = text(doc, 'tipo')
-  rows.value = rowChildren(doc, 'retorno')
-    .filter((el) => el.getElementsByTagName('quantidade').length > 0)
-    .map((el) => ({
-      label: labelFor(tipo.value, el),
-      quantidade: childText(el, 'quantidade'),
-      total: childText(el, 'total'),
-      meta: childText(el, 'meta'),
-      falta: childText(el, 'falta'),
-      percmeta: childText(el, 'percmeta'),
-      percfalta: childText(el, 'percfalta'),
-    }))
-  searched.value = true
-  loading.value = false
+  try {
+    const doc = await call(
+      `P_RMTWEB01:EXEC(${u.codlic}, '${toBr(dtInicial.value)}', '${toBr(dtFinal.value)}', '${grupo.value}', '${marca.value}', '${faturamento.value}')`,
+    )
+    tipo.value = text(doc, 'tipo')
+    rows.value = rowChildren(doc, 'retorno')
+      .filter((el) => el.getElementsByTagName('quantidade').length > 0)
+      .map((el) => ({
+        label: labelFor(tipo.value, el),
+        quantidade: childText(el, 'quantidade'),
+        total: childText(el, 'total'),
+        meta: childText(el, 'meta'),
+        falta: childText(el, 'falta'),
+        percmeta: childText(el, 'percmeta'),
+        percfalta: childText(el, 'percfalta'),
+      }))
+    searched.value = true
+  } catch (e) {
+    notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(async () => {

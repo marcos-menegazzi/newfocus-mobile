@@ -49,13 +49,18 @@ onMounted(async () => {
 
 async function buscar() {
   loading.value = true
-  const v = await listarVisitas(dtInicial.value, dtFinal.value, clifor.value ?? undefined)
-  const a = await listarAgenda(clifor.value ?? undefined)
-  lista.value = [...v, ...a].sort(
-    (x, y) => x.data_agenda.localeCompare(y.data_agenda) || (x.hora || '').localeCompare(y.hora || ''),
-  )
-  searched.value = true
-  loading.value = false
+  try {
+    const v = await listarVisitas(dtInicial.value, dtFinal.value, clifor.value ?? undefined)
+    const a = await listarAgenda(clifor.value ?? undefined)
+    lista.value = [...v, ...a].sort(
+      (x, y) => x.data_agenda.localeCompare(y.data_agenda) || (x.hora || '').localeCompare(y.hora || ''),
+    )
+    searched.value = true
+  } catch (e) {
+    notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
+  } finally {
+    loading.value = false
+  }
 }
 
 function limparFiltro() {

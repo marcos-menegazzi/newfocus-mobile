@@ -36,8 +36,13 @@ const total = computed(() => titulos.value.reduce((s, t) => s + (Number(t.valor)
 
 onMounted(async () => {
   loading.value = true
-  titulos.value = await query<TituloRow>('SELECT * FROM titulos WHERE clifor = ?', [idcliente.value])
-  loading.value = false
+  try {
+    titulos.value = await query<TituloRow>('SELECT * FROM titulos WHERE clifor = ?', [idcliente.value])
+  } catch (e) {
+    notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
+  } finally {
+    loading.value = false
+  }
 })
 
 const abertos = ref(false)

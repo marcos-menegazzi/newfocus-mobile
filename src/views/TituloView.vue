@@ -6,6 +6,7 @@ import EmptyState from '../components/EmptyState.vue'
 import ScreenHeader from '../components/ScreenHeader.vue'
 import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
+import { useToast } from '../composables/useToast'
 
 interface TituloRow {
   numero: string
@@ -17,6 +18,7 @@ interface TituloRow {
 }
 
 const route = useRoute()
+const { notify } = useToast()
 
 const numero = computed(() => {
   const p = route.params.numero
@@ -30,11 +32,15 @@ const idcliente = computed(() => {
 const titulo = ref<TituloRow | null>(null)
 
 onMounted(async () => {
-  const rows = await query<TituloRow>(
-    'SELECT * FROM titulos WHERE clifor = ? AND numero = ?',
-    [idcliente.value, numero.value],
-  )
-  titulo.value = rows[0] ?? null
+  try {
+    const rows = await query<TituloRow>(
+      'SELECT * FROM titulos WHERE clifor = ? AND numero = ?',
+      [idcliente.value, numero.value],
+    )
+    titulo.value = rows[0] ?? null
+  } catch (e) {
+    notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
+  }
 })
 </script>
 

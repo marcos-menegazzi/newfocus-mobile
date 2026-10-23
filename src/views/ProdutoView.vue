@@ -8,6 +8,7 @@ import { query } from '../db/connection'
 import { formatReal } from '../lib/format'
 import { pasta } from '../services/files'
 import { useAuthStore } from '../stores/auth'
+import { useToast } from '../composables/useToast'
 
 interface PrecoRow {
   codigo: number | string
@@ -27,6 +28,7 @@ interface FatorRow {
 
 const route = useRoute()
 const auth = useAuthStore()
+const { notify } = useToast()
 
 const codigo = computed(() => {
   const p = route.params.codigo
@@ -53,15 +55,19 @@ function imageUrl(link: string): string {
 }
 
 onMounted(async () => {
-  const [p, f] = await Promise.all([
-    query<PrecoRow>(
-      'SELECT t.codigo, t.descricao, p.descricao AS proddesc, m.venda, m.minimo, m.maximo, p.link, p.observacao FROM produtos p, tpreco t, mvtpreco m WHERE p.codigo = m.produto AND m.tabela_codigo = t.codigo AND p.codigo = ?',
-      [codigo.value],
-    ),
-    query<FatorRow>('SELECT * FROM fatores WHERE produto = ?', [codigo.value]),
-  ])
-  precos.value = p
-  fatores.value = f
+  try {
+    const [p, f] = await Promise.all([
+      query<PrecoRow>(
+        'SELECT t.codigo, t.descricao, p.descricao AS proddesc, m.venda, m.minimo, m.maximo, p.link, p.observacao FROM produtos p, tpreco t, mvtpreco m WHERE p.codigo = m.produto AND m.tabela_codigo = t.codigo AND p.codigo = ?',
+        [codigo.value],
+      ),
+      query<FatorRow>('SELECT * FROM fatores WHERE produto = ?', [codigo.value]),
+    ])
+    precos.value = p
+    fatores.value = f
+  } catch (e) {
+    notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
+  }
 })
 </script>
 

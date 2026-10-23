@@ -6,6 +6,7 @@ import EmptyState from '../components/EmptyState.vue'
 import ScreenHeader from '../components/ScreenHeader.vue'
 import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
+import { useToast } from '../composables/useToast'
 
 interface ItemRow {
   produto: string
@@ -20,6 +21,7 @@ interface ItemRow {
 }
 
 const route = useRoute()
+const { notify } = useToast()
 
 const pedido = computed(() => {
   const p = route.params.pedido
@@ -42,11 +44,15 @@ const fat = computed(() => route.query.fat === 'S')
 const itens = ref<ItemRow[]>([])
 
 onMounted(async () => {
-  const sql = `SELECT h.produto, h.descricao, h.quant, sum(h.vlunit) AS vlunit, sum(h.vldescto) AS vldescto, sum(h.vltotal) AS vltotal, v.condicao, h.tabela, h.sequencia AS sequencia
+  try {
+    const sql = `SELECT h.produto, h.descricao, h.quant, sum(h.vlunit) AS vlunit, sum(h.vldescto) AS vldescto, sum(h.vltotal) AS vltotal, v.condicao, h.tabela, h.sequencia AS sequencia
 FROM histvenda v, histitens h
 WHERE v.pedido = h.pedido AND v.lancto = h.lancto AND h.pedido = ?${fat.value ? " AND h.faturamento = 'S'" : ''}
 GROUP BY h.produto, h.sequencia ORDER BY h.produto`
-  itens.value = await query<ItemRow>(sql, [pedido.value])
+    itens.value = await query<ItemRow>(sql, [pedido.value])
+  } catch (e) {
+    notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
+  }
 })
 </script>
 

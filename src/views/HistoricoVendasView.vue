@@ -6,6 +6,7 @@ import EmptyState from '../components/EmptyState.vue'
 import ScreenHeader from '../components/ScreenHeader.vue'
 import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
+import { useToast } from '../composables/useToast'
 
 const COLUMNS: Record<string, string> = {
   pedido: 'h.pedido',
@@ -21,6 +22,7 @@ interface VendaRow {
 }
 
 const router = useRouter()
+const { notify } = useToast()
 
 const col = ref('pedido')
 const search = ref('')
@@ -53,17 +55,18 @@ function toSqlDate(term: string): string {
 
 async function buscar() {
   loading.value = true
-  const params: unknown[] = [toSqlDate(datainicial.value), toSqlDate(datafinal.value)]
-  let cond = ''
-  const term = search.value.trim()
-  if (term) {
-    cond += ` AND ${COLUMNS[col.value]} LIKE ?`
-    params.push(`%${term}%`)
-  }
-  if (faturamento.value) {
-    cond += " AND i.faturamento = 'S'"
-  }
-  const sql = `SELECT x.pedido, x.data, sum(x.quantidade) AS quantidade, sum(x.total) AS total, x.fantasia
+  try {
+    const params: unknown[] = [toSqlDate(datainicial.value), toSqlDate(datafinal.value)]
+    let cond = ''
+    const term = search.value.trim()
+    if (term) {
+      cond += ` AND ${COLUMNS[col.value]} LIKE ?`
+      params.push(`%${term}%`)
+    }
+    if (faturamento.value) {
+      cond += " AND i.faturamento = 'S'"
+    }
+    const sql = `SELECT x.pedido, x.data, sum(x.quantidade) AS quantidade, sum(x.total) AS total, x.fantasia
 FROM (
   SELECT h.pedido, h.lancto, h.data, i.quant AS quantidade, sum(i.vltotal) AS total, c.fantasia
   FROM histvenda h, clifor c, histitens i
@@ -71,9 +74,13 @@ FROM (
   GROUP BY h.pedido, i.produto, i.sequencia
 ) x
 GROUP BY x.pedido ORDER BY x.pedido DESC`
-  vendas.value = await query<VendaRow>(sql, params)
-  searched.value = true
-  loading.value = false
+    vendas.value = await query<VendaRow>(sql, params)
+    searched.value = true
+  } catch (e) {
+    notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(buscar)

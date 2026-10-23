@@ -47,22 +47,27 @@ function dataFilter(term: string): string {
 
 async function buscar() {
   loading.value = true
-  let sql = BASE
-  const params: unknown[] = []
-  const term = search.value.trim()
-  if (term) {
-    if (col.value === 'data') {
-      sql += ' WHERE p.data LIKE ?'
-      params.push(`%${dataFilter(term)}%`)
-    } else {
-      sql += ` WHERE ${COLUMNS[col.value]} LIKE ?`
-      params.push(`%${term}%`)
+  try {
+    let sql = BASE
+    const params: unknown[] = []
+    const term = search.value.trim()
+    if (term) {
+      if (col.value === 'data') {
+        sql += ' WHERE p.data LIKE ?'
+        params.push(`%${dataFilter(term)}%`)
+      } else {
+        sql += ` WHERE ${COLUMNS[col.value]} LIKE ?`
+        params.push(`%${term}%`)
+      }
     }
+    sql += ' ORDER BY p.numpedido DESC'
+    pedidos.value = await query<PedidoRow>(sql, params)
+    searched.value = true
+  } catch (e) {
+    notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
+  } finally {
+    loading.value = false
   }
-  sql += ' ORDER BY p.numpedido DESC'
-  pedidos.value = await query<PedidoRow>(sql, params)
-  searched.value = true
-  loading.value = false
 }
 
 onMounted(buscar)
