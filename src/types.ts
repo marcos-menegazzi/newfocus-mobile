@@ -18,6 +18,7 @@ export interface Usuario {
   altcli: string
   obscli: string
   finped: string
+  saldoflex?: number
   data_sinc?: string
   hora_sinc?: string
 }
