@@ -408,12 +408,12 @@ async function connection(): Promise<SQLiteConnection> {
 export async function initDb(): Promise<void> {
   const conn = await connection()
   const consistent = await conn.checkConnectionsConsistency()
-  const exists = (await conn.isConnection(DB_NAME)).result
+  const exists = (await conn.isConnection(DB_NAME, false)).result
 
   if (consistent.result && exists) {
-    db = await conn.retrieveConnection(DB_NAME)
+    db = await conn.retrieveConnection(DB_NAME, false)
   } else {
-    db = await conn.createConnection(DB_NAME, false, 'no-encryption', 1)
+    db = await conn.createConnection(DB_NAME, false, 'no-encryption', 1, false)
   }
   await db.open()
   await db.execute(SCHEMA_SQL)
