@@ -7,11 +7,11 @@ import ScreenHeader from '../components/ScreenHeader.vue'
 import StatusChip from '../components/StatusChip.vue'
 import { query } from '../db/connection'
 import { formatReal } from '../lib/format'
-import { getfator } from '../services/pedido/calc'
+import { getfator, isCondAvista } from '../services/pedido/calc'
 import { calcPreco } from '../services/pedido/preco'
 import { listarItens, incluirItem, gravarItem, excluirItem } from '../services/pedido/itens'
 import { aplicarDesconto, aplicarAcrescimo } from '../services/pedido/desconto'
-import { incluirParcela, excluirParcela, listarParcelas } from '../services/pedido/financeiro'
+import { incluirParcela, excluirParcela, listarParcelas, validarFinanceiro } from '../services/pedido/financeiro'
 import { finalizar } from '../services/pedido/finalizar'
 import { emitirNfe, emitirBoleto } from '../services/sync/fiscal'
 import { pushClientes } from '../services/sync/clientes'
@@ -551,6 +551,44 @@ async function finalizarPedido() {
       alert('Pedido não está aberto.')
       return
     }
+
+    const mped = await query<any>('SELECT idpedido FROM mped WHERE numpedido = ?', [n])
+    if (mped.length === 0) {
+      alert('Pedido sem Itens, Impossível Finalizar.')
+      return
+    }
+
+    const u = auth.usuario
+    if (
+      u?.limcred === 'S' &&
+      store.cabecalho.tipo !== 'E' &&
+      Number(cliente.limcred) > 0 &&
+      !(u.libera === 'S' && isCondAvista(condicoes.value, store.cabecalho.condpag))
+    ) {
+      if (Number(cliente.credito) - total.value < 0) {
+        alert('Pedido Ultrapassa o Limite de Crédito Disponível')
+        return
+      }
+    }
+
+    const cli = store.cabecalho.clifor
+    const [condCliente, cobCliente] = await Promise.all([
+      query<{ condicao: string | number }>('SELECT condicao FROM condicao_cliente WHERE cliente = ?', [cli]),
+      query<{ cobranca: string }>('SELECT cobranca FROM cobranca_cliente WHERE cliente = ?', [cli]),
+    ])
+    const finResult = await validarFinanceiro(
+      n,
+      total.value,
+      u?.finped === 'S',
+      condCliente.map((r) => r.condicao),
+      cobCliente.map((r) => r.cobranca),
+    )
+    if (!finResult.ok) {
+      alert(finResult.msg)
+      return
+    }
+
+    await store.salvar()
     await finalizar(n, {
       cEstoque: store.cabecalho.estoque,
       empresa: store.cabecalho.empresa,
@@ -576,6 +614,7 @@ async function nfe() {
     return
   }
   try {
+    await store.salvar()
     await emitirNfe(store.cabecalho.numpedido, store.cabecalho.lancto ?? 0)
   } catch (e) {
     alert(msg(e))

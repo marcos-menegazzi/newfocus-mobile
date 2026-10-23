@@ -47,6 +47,18 @@ export const usePedidoStore = defineStore('pedido', {
       try {
         const ped = await carregarPedido(numpedido)
         this.cabecalho = ped ?? {}
+        if (ped?.operacao) {
+          const rows = await query<any>(
+            'SELECT estoque, local, cobranca FROM operacao WHERE operacao = ?',
+            [ped.operacao],
+          )
+          const op = rows[0]
+          if (op) {
+            if (op.estoque != null) this.cabecalho.estoque = op.estoque
+            if (op.local != null) this.cabecalho.local = op.local
+            if (op.cobranca != null) this.cabecalho.cobranca = op.cobranca
+          }
+        }
         this.pedstatus = ped?.status ?? ''
       } finally {
         this.carregando = false
