@@ -94,7 +94,7 @@ export async function incluirItem(args: ItemArgs): Promise<void> {
 
   if (await itemExists(args.numpedido, args.codproduto, args.tabela)) {
     await run(
-      'UPDATE mped SET qtd=?, vlunit=?, vltotal=?, vlunbase=?, vlbruto=?, operacao=?, condicao=?, descper=?, comissao=?, fator=?, unidade=?, flex=? WHERE numpedido=? AND codproduto=? AND tabela=?',
+      'UPDATE mped SET qtd=?, vlunit=?, vltotal=?, descto=0, descinc=0, vlunbase=?, vlbruto=?, operacao=?, condicao=?, descper=?, comissao=?, fator=?, unidade=?, flex=? WHERE numpedido=? AND codproduto=? AND tabela=?',
       [args.quantidade, unitario, total, vlunbase, unitario, args.operacao, args.condicao, 'N', args.comissao, fator, args.unidade, flex, args.numpedido, args.codproduto, args.tabela],
     )
   } else {

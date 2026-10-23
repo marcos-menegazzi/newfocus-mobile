@@ -214,6 +214,20 @@ async function ensureNumpedido(): Promise<string | null> {
   return store.cabecalho.numpedido
 }
 
+async function persistTotal() {
+  if (store.cabecalho.numpedido && store.pedstatus === 'A') {
+    await store.salvar()
+  }
+}
+
+function assertAberto(): boolean {
+  if (store.pedstatus !== 'A') {
+    alert('Desconto e Acréscimo só podem ser aplicados em pedido Aberto.')
+    return false
+  }
+  return true
+}
+
 // --- Incluir (produtos) ---
 const PROD_FIELDS: Record<string, string> = {
   descred: 'descred',
@@ -294,6 +308,7 @@ async function quickAdd(p: any) {
       libmin: auth.usuario?.libmin === 'S',
     })
     await refreshItens()
+    await persistTotal()
   } catch (e) {
     alert(msg(e))
   }
@@ -401,6 +416,7 @@ async function gravarModal() {
     })
     modal.open = false
     await refreshItens()
+    await persistTotal()
   } catch (e) {
     alert(msg(e))
   }
@@ -417,6 +433,7 @@ async function removerItem(row: any) {
   if (!confirm('Excluir este item?')) return
   await excluirItem(store.cabecalho.numpedido, row.codproduto, row.tabela)
   await refreshItens()
+  await persistTotal()
 }
 
 // --- Desconto ---
@@ -424,6 +441,7 @@ const descontoModo = ref<'percent' | 'reais'>('percent')
 const descontoValor = ref<number | null>(null)
 
 async function aplicarDescontoPedido() {
+  if (!assertAberto()) return
   const n = await ensureNumpedido()
   if (!n) return
   try {
@@ -433,17 +451,20 @@ async function aplicarDescontoPedido() {
       porItem: descontoModo.value === 'reais',
     })
     await refreshItens()
+    await persistTotal()
   } catch (e) {
     alert(msg(e))
   }
 }
 
 async function removerDesconto() {
+  if (!assertAberto()) return
   const n = store.cabecalho.numpedido
   if (!n) return
   try {
     await aplicarDesconto(n, { aplicar: false, valor: 0, porItem: false })
     await refreshItens()
+    await persistTotal()
   } catch (e) {
     alert(msg(e))
   }
@@ -498,6 +519,7 @@ function preloadNegociacao() {
 }
 
 async function aplicarAcrescimoPedido() {
+  if (!assertAberto()) return
   const n = await ensureNumpedido()
   if (!n) return
   try {
@@ -509,17 +531,20 @@ async function aplicarAcrescimoPedido() {
       snunidade: snunidade.value ? 'S' : 'N',
     })
     await refreshItens()
+    await persistTotal()
   } catch (e) {
     alert(msg(e))
   }
 }
 
 async function removerAcrescimo() {
+  if (!assertAberto()) return
   const n = store.cabecalho.numpedido
   if (!n) return
   try {
     await aplicarAcrescimo(n, { aplicar: false, vlquilo: 0, vlunidade: 0, snquilo: 'N', snunidade: 'N' })
     await refreshItens()
+    await persistTotal()
   } catch (e) {
     alert(msg(e))
   }

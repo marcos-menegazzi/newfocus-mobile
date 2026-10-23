@@ -9,6 +9,7 @@ import {
   reabrirPedido,
   orcamentoToPedido,
   reenviarPedido,
+  assertEditable,
 } from '../services/pedido/pedido'
 
 export const usePedidoStore = defineStore('pedido', {
@@ -37,7 +38,20 @@ export const usePedidoStore = defineStore('pedido', {
     },
     async novo() {
       const pre = await novopedidoPrefill()
-      this.cabecalho = { ...pre, numpedido: '', status: 'A' }
+      this.cabecalho = {
+        empresa: pre.empresa,
+        operacao: pre.operacao,
+        cobranca: pre.cobranca,
+        local: pre.local,
+        condpag: pre.condpag,
+        tabela: pre.tabela,
+        carga: pre.carga,
+        comissao: pre.comissao,
+        vendedor: pre.vendedor,
+        estoque: pre.estoque,
+        numpedido: '',
+        status: 'A',
+      }
       this.itens = []
       this.parcelas = []
       this.pedstatus = 'A'
@@ -70,6 +84,7 @@ export const usePedidoStore = defineStore('pedido', {
       return numpedido
     },
     async cancelar() {
+      assertEditable(this.pedstatus)
       await cancelarPedido(this.cabecalho.numpedido, {
         cEstoque: this.cabecalho.estoque,
         empresa: this.cabecalho.empresa,

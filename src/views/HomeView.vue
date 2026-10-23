@@ -96,7 +96,7 @@ onMounted(async () => {
       <ul v-else class="divide-y divide-ink-200 bg-white rounded-card shadow-card overflow-hidden">
         <li v-for="pedido in ultimosPedidos" :key="pedido.idpedido" class="hover:bg-ink-200/50">
           <RouterLink
-            :to="{ name: 'pedidos' }"
+            :to="{ name: 'pedido-edit', params: { numpedido: pedido.numpedido } }"
             class="flex items-center justify-between gap-3 px-4 py-3"
           >
             <div class="min-w-0">

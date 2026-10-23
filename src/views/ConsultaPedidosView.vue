@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ScreenHeader from '../components/ScreenHeader.vue'
@@ -29,6 +30,7 @@ interface PedidoRow {
 }
 
 const auth = useAuthStore()
+const router = useRouter()
 
 const col = ref('numpedido')
 const search = ref('')
@@ -62,6 +64,10 @@ async function buscar() {
 }
 
 onMounted(buscar)
+
+async function abrirPedido(p: PedidoRow) {
+  router.push(`/pedidos/${p.numpedido}`)
+}
 
 async function nfe(p: PedidoRow) {
   try {
@@ -119,7 +125,7 @@ async function reenviar(p: PedidoRow) {
 
       <EmptyState v-if="searched && pedidos.length === 0" label="Nenhum pedido encontrado" />
       <ul v-else class="divide-y divide-ink-200 bg-white rounded-card shadow-card overflow-hidden">
-        <li v-for="p in pedidos" :key="p.numpedido" class="px-4 py-3">
+        <li v-for="p in pedidos" :key="p.numpedido" class="px-4 py-3 cursor-pointer hover:bg-ink-200/50" @click="abrirPedido(p)">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="text-sm font-medium text-ink-900 truncate">Nº {{ p.numpedido }}</p>
@@ -129,9 +135,9 @@ async function reenviar(p: PedidoRow) {
             <StatusChip :status="p.status" />
           </div>
           <div class="flex gap-2 mt-2">
-            <button class="text-xs font-semibold text-accent-600" @click="nfe(p)">NF-e</button>
-            <button class="text-xs font-semibold text-accent-600" @click="boleto(p)">Boleto</button>
-            <button v-if="p.status === 'V'" class="text-xs font-semibold text-accent-600" @click="reenviar(p)">Reenviar</button>
+            <button class="text-xs font-semibold text-accent-600" @click.stop="nfe(p)">NF-e</button>
+            <button class="text-xs font-semibold text-accent-600" @click.stop="boleto(p)">Boleto</button>
+            <button v-if="p.status === 'V'" class="text-xs font-semibold text-accent-600" @click.stop="reenviar(p)">Reenviar</button>
           </div>
         </li>
       </ul>

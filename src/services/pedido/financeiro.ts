@@ -69,10 +69,10 @@ export async function validarFinanceiro(
   let totalFin = 0
   for (const p of rows) {
     totalFin += Number(p.valor)
-    if (p.condicao != null && p.condicao !== '' && !condicliente.some((c) => String(c) === String(p.condicao))) {
+    if (condicliente.length > 0 && p.condicao != null && p.condicao !== '' && !condicliente.some((c) => String(c) === String(p.condicao))) {
       return { ok: false, msg: 'Condição não Permitida.' }
     }
-    if (p.cobranca && !cobcliente.some((c) => String(c) === String(p.cobranca))) {
+    if (cobcliente.length > 0 && p.cobranca && !cobcliente.some((c) => String(c) === String(p.cobranca))) {
       return { ok: false, msg: 'Cobrança não Permitida.' }
     }
   }

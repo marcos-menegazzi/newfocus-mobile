@@ -1,5 +1,5 @@
 import { query, run } from '../../db/connection'
-import { gerarIdUnico } from './calc'
+import { gerarIdUnico, pad } from './calc'
 
 export interface CabecalhoInput {
   numpedido: string
@@ -44,6 +44,20 @@ async function totalPedido(numpedido: string): Promise<number> {
   return Number(rows[0]?.total ?? 0)
 }
 
+async function pesoTotalPedido(numpedido: string): Promise<number> {
+  const rows = await query<{ peso: number }>(
+    'SELECT COALESCE(SUM(m.qtd * p.peso), 0) AS peso FROM mped m LEFT JOIN produtos p ON p.codigo = m.codproduto WHERE m.numpedido = ?',
+    [numpedido],
+  )
+  return Number(rows[0]?.peso ?? 0)
+}
+
+export function assertEditable(status: string): void {
+  if (status === 'S' || status === 'Z' || status === 'V') {
+    throw new Error('Pedido não pode ser alterado neste status.')
+  }
+}
+
 export async function salvarCabecalho(args: CabecalhoInput): Promise<string> {
   const obsped = String(args.obsped ?? '').replace(/["']/g, '')
   const complemento = String(args.complemento ?? '').replace(/["']/g, '')
@@ -54,25 +68,28 @@ export async function salvarCabecalho(args: CabecalhoInput): Promise<string> {
   if (valorFrete > total) throw new Error('valor_frete maior que o total do pedido')
 
   if (!args.numpedido) {
-    const numpedido = String(await novoNumeroPedido())
+    const numpedido = pad(await novoNumeroPedido(), 10)
     await run(
       `INSERT INTO ped(operacao, numpedido, clifor, empresa, condpag, total, data, status, obsped, tabela, carga, tipo, comissao, complemento, idunico, numero, peso_total, retsuc, resolvido, cliente_nome, cliente_cpf, vendedor, valor_frete)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [args.operacao, numpedido, args.clifor, args.empresa, args.condpag, total, args.data,
         args.status, obsped, args.tabela, args.carga, args.tipo, args.comissao, complemento,
-        gerarIdUnico(), args.numero, args.peso_total, args.retsuc, args.resolvido,
+        gerarIdUnico(), args.numero, 0, args.retsuc, args.resolvido,
         args.cliente_nome, args.cliente_cpf, args.vendedor, valorFrete],
     )
     return numpedido
   } else {
+    const atual = await query<{ status: string }>('SELECT status FROM ped WHERE numpedido = ?', [args.numpedido])
+    assertEditable(atual[0]?.status ?? '')
+    const pesoTotal = await pesoTotalPedido(args.numpedido)
     await run(
       `UPDATE ped SET operacao=?, clifor=?, empresa=?, condpag=?, total=?, data=?, status=?, obsped=?, tabela=?, carga=?, tipo=?, comissao=?, complemento=?, numero=?, peso_total=?, retsuc=?, resolvido=?, cliente_nome=?, cliente_cpf=?, vendedor=?, valor_frete = CASE WHEN status = 'A' THEN ? ELSE valor_frete END WHERE numpedido = ?`,
       [args.operacao, args.clifor, args.empresa, args.condpag, total, args.data, args.status,
         obsped, args.tabela, args.carga, args.tipo, args.comissao, complemento, args.numero,
-        args.peso_total, args.retsuc, args.resolvido, args.cliente_nome, args.cliente_cpf,
+        pesoTotal, args.retsuc, args.resolvido, args.cliente_nome, args.cliente_cpf,
         args.vendedor, valorFrete, args.numpedido],
     )
-    return args.numpedido
+    return pad(Number(args.numpedido), 10)
   }
 }
 
@@ -98,7 +115,7 @@ export async function duplicarPedido(origem: string): Promise<string> {
   const ped = await query<any>('SELECT * FROM ped WHERE numpedido = ?', [origem])
   if (ped.length === 0) throw new Error('pedido não encontrado')
   const p = ped[0]
-  const numpedido = String(await novoNumeroPedido())
+  const numpedido = pad(await novoNumeroPedido(), 10)
   await run(
     `INSERT INTO ped(operacao, numpedido, clifor, empresa, condpag, total, data, status, obsped, tabela, carga, tipo, comissao, complemento, idunico, numero, peso_total, retsuc, resolvido, cliente_nome, cliente_cpf)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
