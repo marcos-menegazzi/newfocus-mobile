@@ -12,6 +12,7 @@ import { useAuthStore } from '../stores/auth'
 interface PrecoRow {
   codigo: number | string
   descricao: string
+  proddesc: string
   venda: number | string
   minimo: number | string
   maximo: number | string
@@ -24,10 +25,6 @@ interface FatorRow {
   fator: number | string
 }
 
-interface ProdRow {
-  descricao: string
-}
-
 const route = useRoute()
 const auth = useAuthStore()
 
@@ -36,19 +33,13 @@ const codigo = computed(() => {
   return Array.isArray(p) ? p[0] : p
 })
 
-const descricaoParam = computed(() => {
-  const q = route.query.descricao
-  return typeof q === 'string' ? q : ''
-})
-
 const precos = ref<PrecoRow[]>([])
 const fatores = ref<FatorRow[]>([])
-const prodDesc = ref('')
 
 const num = (n: number | string | null | undefined) => Number(n ?? 0)
 
 const titulo = computed(() => {
-  const d = descricaoParam.value || prodDesc.value
+  const d = precos.value[0]?.proddesc ?? ''
   return d ? `${codigo.value} - ${d}` : codigo.value
 })
 
@@ -62,17 +53,15 @@ function imageUrl(link: string): string {
 }
 
 onMounted(async () => {
-  const [p, f, d] = await Promise.all([
+  const [p, f] = await Promise.all([
     query<PrecoRow>(
-      'SELECT t.codigo, t.descricao, m.venda, m.minimo, m.maximo, p.link, p.observacao FROM produtos p, tpreco t, mvtpreco m WHERE p.codigo = m.produto AND m.tabela_codigo = t.codigo AND p.codigo = ?',
+      'SELECT t.codigo, t.descricao, p.descricao AS proddesc, m.venda, m.minimo, m.maximo, p.link, p.observacao FROM produtos p, tpreco t, mvtpreco m WHERE p.codigo = m.produto AND m.tabela_codigo = t.codigo AND p.codigo = ?',
       [codigo.value],
     ),
     query<FatorRow>('SELECT * FROM fatores WHERE produto = ?', [codigo.value]),
-    query<ProdRow>('SELECT descricao FROM produtos WHERE codigo = ?', [codigo.value]),
   ])
   precos.value = p
   fatores.value = f
-  prodDesc.value = d[0]?.descricao ?? ''
 })
 </script>
 
