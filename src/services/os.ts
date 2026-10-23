@@ -1,5 +1,5 @@
 import { call } from './sync/context'
-import { childText, rowChildren } from './sync/helpers'
+import { childText, removechar, rowChildren } from './sync/helpers'
 
 export interface Opt {
   codigo: string
@@ -91,6 +91,10 @@ export async function uploadImage(base64: string): Promise<string> {
   return (await res.text()).trim()
 }
 
+function sanitizeFreeText(s: string): string {
+  return removechar(s).replace(/["']/g, '')
+}
+
 export function buildDespesaXml(input: {
   os: string
   conta: string
@@ -107,7 +111,7 @@ export function buildDespesaXml(input: {
     `[ctf]${input.conta}[/ctf]` +
     `[data]${input.data}[/data]` +
     `[valor]${input.valor}[/valor]` +
-    `[obs]${input.obs}[/obs]` +
+    `[obs]${sanitizeFreeText(input.obs)}[/obs]` +
     `[funcionarios]${f}[/funcionarios]` +
     `[image]${input.image}[/image]` +
     '[latitude]0[/latitude][longitude]0[/longitude]' +
@@ -130,7 +134,7 @@ export function buildDiarioXml(input: {
   return (
     '[lancamentos]' +
     `[os]${input.os}[/os]` +
-    `[obs]${input.obs}[/obs]` +
+    `[obs]${sanitizeFreeText(input.obs)}[/obs]` +
     `[funcionarios]${f}[/funcionarios]` +
     `[apontamentos]${a}[/apontamentos]` +
     `[fotos]${ft}[/fotos]` +

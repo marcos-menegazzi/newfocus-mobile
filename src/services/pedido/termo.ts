@@ -32,9 +32,11 @@ export async function saldoSucata(
 
 export async function saldosFinanceiro(cliente: string | number): Promise<SaldoFinanceiro[]> {
   const doc = await call(`P_SLDWEB01:EXEC(${cliente})`)
-  const status = childText(doc.getElementsByTagName('retorno')[0], 'status')
-  if (status && status !== 'OK') {
-    throw new Error(childText(doc.getElementsByTagName('retorno')[0], 'msg') || 'Erro ao consultar saldos')
+  const retorno = doc.getElementsByTagName('retorno')[0]
+  if (!retorno) throw new Error('Não foi possível ler o retorno da consulta de saldos')
+  const status = childText(retorno, 'status').toUpperCase()
+  if (status !== 'OK') {
+    throw new Error(childText(retorno, 'msg') || 'Erro ao consultar saldos')
   }
   return rowChildren(doc, 'saldos').map((r) => ({
     conta: childText(r, 'conta'),

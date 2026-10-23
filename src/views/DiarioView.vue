@@ -30,6 +30,7 @@ const fotos = ref<string[]>([])
 
 const loading = ref(false)
 const msg = ref('')
+const sucesso = ref(false)
 
 onMounted(async () => {
   ordens.value = await listarOs()
@@ -96,6 +97,7 @@ function removerFoto(i: number) {
 
 async function apontar() {
   msg.value = ''
+  sucesso.value = false
   if (!os.value || Number(os.value) < 1) return (msg.value = 'OS deve ser selecionada')
   if (apontamentos.value.length < 1) return (msg.value = 'Deve ser efetuado apontamentos de Data/Hora')
   if (selecionados.value.length < 1) return (msg.value = 'Deve ser informado ao menos um funcionário')
@@ -115,6 +117,7 @@ async function apontar() {
       fotos: enviadas,
     })
     msg.value = r.msg
+    sucesso.value = r.ok
     if (r.ok) reset()
   } catch (e) {
     msg.value = e instanceof Error ? e.message : 'Erro ao lançar diário'
@@ -221,7 +224,7 @@ function reset() {
           </div>
         </div>
 
-        <p v-if="msg" class="text-sm mb-3" :class="msg === 'Lançamento efetuado com sucesso' ? 'text-green-600' : 'text-red-500'">
+        <p v-if="msg" class="text-sm mb-3" :class="sucesso ? 'text-green-600' : 'text-red-500'">
           {{ msg }}
         </p>
 

@@ -27,6 +27,7 @@ const foto = ref<string | null>(null)
 
 const loading = ref(false)
 const msg = ref('')
+const sucesso = ref(false)
 
 function dd(n: number): string {
   return String(n).padStart(2, '0')
@@ -81,6 +82,7 @@ async function escolher() {
 
 async function apontar() {
   msg.value = ''
+  sucesso.value = false
   if (!os.value || Number(os.value) < 1) return (msg.value = 'OS deve ser selecionada')
   if (!conta.value) return (msg.value = 'Conta Financeira deve ser informada')
   if (!data.value) return (msg.value = 'Data deve ser informada')
@@ -104,6 +106,7 @@ async function apontar() {
       image,
     })
     msg.value = r.msg
+    sucesso.value = r.ok
     if (r.ok) reset()
   } catch (e) {
     msg.value = e instanceof Error ? e.message : 'Erro ao lançar despesa'
@@ -189,7 +192,7 @@ function reset() {
           <button type="button" class="btn-primary flex-1" @click="escolher">Escolher Foto</button>
         </div>
 
-        <p v-if="msg" class="text-sm mb-3" :class="msg === 'Lançamento efetuado com sucesso' ? 'text-green-600' : 'text-red-500'">
+        <p v-if="msg" class="text-sm mb-3" :class="sucesso ? 'text-green-600' : 'text-red-500'">
           {{ msg }}
         </p>
 
