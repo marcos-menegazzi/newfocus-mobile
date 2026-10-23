@@ -18,7 +18,7 @@ Non-goals (out of scope): migrating on-device data from the old Cordova app
 
 | Concern | Choice |
 |---|---|
-| Runtime | Capacitor 7 (Android + iOS) |
+| Runtime | Capacitor 8 (Android + iOS) |
 | UI | Vue 3 (Composition API) + Vite |
 | Language | TypeScript (strict) |
 | Styling | Tailwind CSS |
