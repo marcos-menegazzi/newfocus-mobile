@@ -30,6 +30,14 @@ describe('text', () => {
     expect(text(doc, 'estoque')).toBe('S')
     expect(text(doc, 'missing')).toBe('')
   })
+
+  it('scopes text lookup to the retorno element', () => {
+    const doc = new DOMParser().parseFromString(
+      '<root><result>outside</result><retorno><result>inside</result></retorno></root>',
+      'text/xml',
+    )
+    expect(text(doc, 'result')).toBe('inside')
+  })
 })
 
 describe('WS_PATH', () => {

@@ -39,7 +39,8 @@ export function buildEnvelope(
 }
 
 export async function soapCommand(opts: SoapCommandOptions): Promise<Document> {
-  const url = `https://${opts.server}${WS_PATH}`
+  const server = opts.server.replace(/^https?:\/\//i, '')
+  const url = `https://${server}${WS_PATH}`
   const data = buildEnvelope(opts.comando, opts.costumerId, opts.username, opts.password)
 
   const res = await CapacitorHttp.post({
@@ -58,7 +59,9 @@ export async function soapCommand(opts: SoapCommandOptions): Promise<Document> {
 }
 
 export function text(doc: Document, tag: string): string {
-  const node = doc.getElementsByTagName(tag)[0]
+  const retorno = doc.getElementsByTagName('retorno')[0]
+  if (!retorno) return ''
+  const node = retorno.getElementsByTagName(tag)[0]
   if (!node || !node.childNodes[0]) return ''
   return node.childNodes[0].nodeValue ?? ''
 }
