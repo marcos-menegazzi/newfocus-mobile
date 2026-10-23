@@ -1007,14 +1007,12 @@ const auth = useAuthStore()
 ```ts
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import { defineCustomElements as jeepSqlite, applyPolyfills } from 'jeep-sqlite/loader'
+import { defineCustomElements as jeepSqlite } from 'jeep-sqlite/loader'
 import App from './App.vue'
 import router from './router'
 import './style.css'
 
-applyPolyfills().then(() => {
-  jeepSqlite(window)
-})
+jeepSqlite(window)
 
 const app = createApp(App)
 app.use(createPinia())
