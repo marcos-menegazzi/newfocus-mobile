@@ -19,6 +19,10 @@ const routes = [
   { path: '/historico-vendas', name: 'historico-vendas', component: () => import('../views/HistoricoVendasView.vue') },
   { path: '/agenda', name: 'agenda', component: () => import('../views/AgendaView.vue') },
   { path: '/metas', name: 'metas', component: () => import('../views/MetasView.vue') },
+  { path: '/os', name: 'os', component: () => import('../views/OsView.vue') },
+  { path: '/os/despesas', name: 'os-despesas', component: () => import('../views/DespesasView.vue') },
+  { path: '/os/diario', name: 'os-diario', component: () => import('../views/DiarioView.vue') },
+  { path: '/os/historico', name: 'os-historico', component: () => import('../views/OsHistoricoView.vue') },
 ]
 
 const router = createRouter({
