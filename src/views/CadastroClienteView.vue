@@ -7,6 +7,7 @@ import { query, run } from '../db/connection'
 import { useAuthStore } from '../stores/auth'
 import { removechar } from '../services/sync/helpers'
 import estadosCidades from '../assets/estados_cidades.json'
+import { useToast } from '../composables/useToast'
 
 interface Estado {
   sigla: string
@@ -19,6 +20,7 @@ const estados = estadosCidades as Estado[]
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+const { notify } = useToast()
 
 const idcliente = computed(() => {
   const p = route.params.idcliente
@@ -162,21 +164,21 @@ async function buscarCnpj() {
 
 async function salvar() {
   const f = form
-  if (!f.razao) return alert('Informe a Razão Social')
-  if (!f.fantasia) return alert('Informe a Fantasia')
-  if (!f.bairro) return alert('Informe o Bairro')
-  if (!f.cep) return alert('Informe o CEP')
-  if (!f.cidade) return alert('Informe a Cidade')
-  if (!f.email) return alert('Informe o Email')
-  if (!f.endereco) return alert('Informe o Endereço')
-  if (!f.estado) return alert('Informe o Estado')
-  if (!f.numero) return alert('Informe o Número')
-  if (!f.tel1) return alert('Informe o Telefone')
-  if (!f.cnpj) return alert('Informe o CNPJ/CPF')
-  if (!f.emailnfe) return alert('Informe o Email NF-e')
+  if (!f.razao) return notify('Informe a Razão Social')
+  if (!f.fantasia) return notify('Informe a Fantasia')
+  if (!f.bairro) return notify('Informe o Bairro')
+  if (!f.cep) return notify('Informe o CEP')
+  if (!f.cidade) return notify('Informe a Cidade')
+  if (!f.email) return notify('Informe o Email')
+  if (!f.endereco) return notify('Informe o Endereço')
+  if (!f.estado) return notify('Informe o Estado')
+  if (!f.numero) return notify('Informe o Número')
+  if (!f.tel1) return notify('Informe o Telefone')
+  if (!f.cnpj) return notify('Informe o CNPJ/CPF')
+  if (!f.emailnfe) return notify('Informe o Email NF-e')
 
   const cnpj = f.cnpj.replace(/\D/g, '')
-  if (!validaCpfCnpj(cnpj)) return alert('CPF/CNPJ inválido, favor verificar.')
+  if (!validaCpfCnpj(cnpj)) return notify('CPF/CNPJ inválido, favor verificar.')
 
   const params = [
     f.bairro, f.cep, f.cidade, f.cj, f.contato, f.ddd, f.email, f.endereco,
@@ -189,7 +191,7 @@ async function salvar() {
       `UPDATE clifor SET fantasia=?, bairro=?, cep=?, cidade=?, cj=?, contato=?, ddd=?, email=?, endereco=?, estado=?, fax=?, inscricao=?, numero=?, razao=?, tel1=?, cnpj=?, emailnfe=?, simples=?, tippess=?, obs=?, enviado='N', final=?, regiao=? WHERE clifor = ?`,
       [f.fantasia, ...params, f.final, f.regiao, idcliente.value],
     )
-    alert('Cliente atualizado')
+    notify('Cliente atualizado')
     return
   }
 

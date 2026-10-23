@@ -7,6 +7,7 @@ import ScreenHeader from '../components/ScreenHeader.vue'
 import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
 import { titulosAbertos, duplicata, type TituloAberto } from '../services/sync/titulos_abertos'
+import { useToast } from '../composables/useToast'
 
 interface TituloRow {
   numero: string
@@ -17,6 +18,7 @@ interface TituloRow {
 }
 
 const route = useRoute()
+const { notify } = useToast()
 
 const idcliente = computed(() => {
   const p = route.params.idcliente
@@ -49,7 +51,7 @@ async function abrirAbertos() {
   try {
     abertosRows.value = await titulosAbertos(idcliente.value ?? '')
   } catch (e) {
-    alert(e instanceof Error ? e.message : 'Não foi possível carregar os títulos abertos')
+    notify(e instanceof Error ? e.message : 'Não foi possível carregar os títulos abertos', 'error')
   } finally {
     abertosLoading.value = false
   }
@@ -59,7 +61,7 @@ async function verDuplicata(r: TituloAberto) {
   try {
     await duplicata(r.lancto)
   } catch (e) {
-    alert(e instanceof Error ? e.message : 'Não foi possível gerar a duplicata')
+    notify(e instanceof Error ? e.message : 'Não foi possível gerar a duplicata', 'error')
   }
 }
 </script>

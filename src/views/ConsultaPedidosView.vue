@@ -10,6 +10,7 @@ import { formatReal, mudadata } from '../lib/format'
 import { emitirNfe, emitirBoleto, reenviarPedido } from '../services/sync/fiscal'
 import { openPdf, pasta } from '../services/files'
 import { useAuthStore } from '../stores/auth'
+import { useToast } from '../composables/useToast'
 
 const COLUMNS: Record<string, string> = {
   numpedido: 'p.numpedido',
@@ -31,6 +32,7 @@ interface PedidoRow {
 
 const auth = useAuthStore()
 const router = useRouter()
+const { notify } = useToast()
 
 const col = ref('numpedido')
 const search = ref('')
@@ -80,7 +82,7 @@ async function nfe(p: PedidoRow) {
     await emitirNfe(p.numpedido, p.lancto)
     buscar()
   } catch (e) {
-    alert(e instanceof Error ? e.message : 'Não foi possível gerar a NF-e')
+    notify(e instanceof Error ? e.message : 'Não foi possível gerar a NF-e', 'error')
   }
 }
 
@@ -88,7 +90,7 @@ async function boleto(p: PedidoRow) {
   try {
     await emitirBoleto(p.lancto)
   } catch (e) {
-    alert(e instanceof Error ? e.message : 'Não foi possível gerar o boleto')
+    notify(e instanceof Error ? e.message : 'Não foi possível gerar o boleto', 'error')
   }
 }
 
@@ -97,7 +99,7 @@ async function reenviar(p: PedidoRow) {
     await reenviarPedido(p.numpedido)
     buscar()
   } catch (e) {
-    alert(e instanceof Error ? e.message : 'Não foi possível reenviar o pedido')
+    notify(e instanceof Error ? e.message : 'Não foi possível reenviar o pedido', 'error')
   }
 }
 </script>

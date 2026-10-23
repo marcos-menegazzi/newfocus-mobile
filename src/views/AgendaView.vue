@@ -16,6 +16,7 @@ import {
   type AgendaItem,
   type Motivo,
 } from '../services/agenda'
+import { useToast } from '../composables/useToast'
 
 interface ClienteRow {
   codigo: number
@@ -25,7 +26,6 @@ interface ClienteRow {
 function hoje(): string {
   return new Date().toISOString().slice(0, 10)
 }
-
 function primeiroDiaMes(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
@@ -40,6 +40,7 @@ const lista = ref<AgendaItem[]>([])
 const loading = ref(false)
 const searched = ref(false)
 const motivos = ref<Motivo[]>([])
+const { notify } = useToast()
 
 onMounted(async () => {
   motivos.value = await listarMotivos()
@@ -83,7 +84,7 @@ async function abrirAtendimento(item: AgendaItem) {
   atdForm.motivo = item.motivo || ''
   atd.value = true
   if (await temTitulos(item.clifor)) {
-    alert('Cliente possui títulos em aberto.')
+    notify('Cliente possui títulos em aberto.')
   }
 }
 
@@ -98,7 +99,7 @@ async function confirmarAtendimento() {
     atd.value = false
     await buscar()
   } catch (e) {
-    alert(e instanceof Error ? e.message : 'Erro ao salvar atendimento')
+    notify(e instanceof Error ? e.message : 'Erro ao salvar atendimento', 'error')
   }
 }
 
@@ -116,13 +117,13 @@ function abrirAgenda() {
 }
 
 async function salvarAgenda() {
-  if (!agendaForm.clifor) return alert('Selecione o cliente')
+  if (!agendaForm.clifor) return notify('Selecione o cliente')
   try {
     await novaRecorrencia(agendaForm.clifor, agendaForm.data, agendaForm.dia, agendaForm.hora, agendaForm.dias)
     agenda.value = false
     await buscar()
   } catch (e) {
-    alert(e instanceof Error ? e.message : 'Erro ao salvar agenda')
+    notify(e instanceof Error ? e.message : 'Erro ao salvar agenda', 'error')
   }
 }
 
@@ -138,13 +139,13 @@ function abrirVisita() {
 }
 
 async function salvarVisita() {
-  if (!nvForm.clifor) return alert('Selecione o cliente')
+  if (!nvForm.clifor) return notify('Selecione o cliente')
   try {
     await novaVisita(nvForm.clifor, nvForm.data, nvForm.hora, nvForm.data)
     visita.value = false
     await buscar()
   } catch (e) {
-    alert(e instanceof Error ? e.message : 'Erro ao salvar visita')
+    notify(e instanceof Error ? e.message : 'Erro ao salvar visita', 'error')
   }
 }
 

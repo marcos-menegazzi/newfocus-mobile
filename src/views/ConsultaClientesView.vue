@@ -10,6 +10,7 @@ import { childText, rowChildren } from '../services/sync/helpers'
 import { text } from '../services/soap'
 import { openPdf, pdfUrl } from '../services/files'
 import { useAuthStore } from '../stores/auth'
+import { useToast } from '../composables/useToast'
 
 const COLUMNS: Record<string, string> = {
   fantasia: 'c.fantasia',
@@ -42,6 +43,7 @@ interface GarantiaRow {
 }
 
 const auth = useAuthStore()
+const { notify } = useToast()
 
 const col = ref('fantasia')
 const positivado = ref('todos')
@@ -84,7 +86,7 @@ async function extrato(c: ClienteRow) {
   if (!u) return
   const doc = await call(`P_EXTWEB:EXEC("${c.codigo}","${u.codlic}")`)
   if (text(doc, 'status') !== 'Ok') {
-    alert('Não foi possível gerar o extrato.')
+    notify('Não foi possível gerar o extrato.', 'error')
     return
   }
   const arquivo = text(doc, 'arquivo')

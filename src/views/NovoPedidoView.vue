@@ -20,11 +20,13 @@ import { pushClientes } from '../services/sync/clientes'
 import { pushPedidos } from '../services/sync/pedidos'
 import { useAuthStore } from '../stores/auth'
 import { usePedidoStore } from '../stores/pedido'
+import { useToast } from '../composables/useToast'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const store = usePedidoStore()
+const { notify } = useToast()
 
 const TABS = [
   { key: 'pedido', label: 'Pedido' },
@@ -209,7 +211,7 @@ async function ensureNumpedido(): Promise<string | null> {
   if (store.cabecalho.numpedido) return store.cabecalho.numpedido
   const err = validarCabecalho()
   if (err) {
-    alert(err)
+    notify(err)
     return null
   }
   await store.salvar()
@@ -224,7 +226,7 @@ async function persistTotal() {
 
 function assertAberto(): boolean {
   if (store.pedstatus !== 'A') {
-    alert('Desconto e Acréscimo só podem ser aplicados em pedido Aberto.')
+    notify('Desconto e Acréscimo só podem ser aplicados em pedido Aberto.')
     return false
   }
   return true
@@ -245,7 +247,7 @@ const PROD_LIMIT = 30
 
 async function buscarProdutos(reset = true) {
   if (!store.cabecalho.tabela) {
-    alert('Selecione uma Tabela de Preço.')
+    notify('Selecione uma Tabela de Preço.')
     return
   }
   if (reset) {
@@ -312,7 +314,7 @@ async function quickAdd(p: any) {
     await refreshItens()
     await persistTotal()
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
@@ -420,7 +422,7 @@ async function gravarModal() {
     await refreshItens()
     await persistTotal()
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
@@ -455,7 +457,7 @@ async function aplicarDescontoPedido() {
     await refreshItens()
     await persistTotal()
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
@@ -468,7 +470,7 @@ async function removerDesconto() {
     await refreshItens()
     await persistTotal()
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
@@ -498,7 +500,7 @@ async function gravarParcela() {
     fin.autorizacao = ''
     await refreshParcelas()
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
@@ -535,7 +537,7 @@ async function aplicarAcrescimoPedido() {
     await refreshItens()
     await persistTotal()
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
@@ -548,34 +550,34 @@ async function removerAcrescimo() {
     await refreshItens()
     await persistTotal()
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
 // --- Footer actions ---
 async function cancelarPedido() {
   if (!store.cabecalho.numpedido) {
-    alert('Salve o pedido antes de cancelar.')
+    notify('Salve o pedido antes de cancelar.')
     return
   }
   try {
     await store.cancelar()
-    alert('Pedido cancelado.')
+    notify('Pedido cancelado.')
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
 async function imprimir() {
   const n = store.cabecalho.numpedido
   if (!n) {
-    alert('Salve o pedido antes de imprimir.')
+    notify('Salve o pedido antes de imprimir.')
     return
   }
   try {
     await imprimirPedido(n)
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
@@ -584,13 +586,13 @@ async function finalizarPedido() {
     const n = await ensureNumpedido()
     if (!n) return
     if (store.pedstatus !== 'A') {
-      alert('Pedido não está aberto.')
+      notify('Pedido não está aberto.')
       return
     }
 
     const mped = await query<any>('SELECT idpedido FROM mped WHERE numpedido = ?', [n])
     if (mped.length === 0) {
-      alert('Pedido sem Itens, Impossível Finalizar.')
+      notify('Pedido sem Itens, Impossível Finalizar.')
       return
     }
 
@@ -602,7 +604,7 @@ async function finalizarPedido() {
       !(u.libera === 'S' && isCondAvista(condicoes.value, store.cabecalho.condpag))
     ) {
       if (Number(cliente.credito) - total.value < 0) {
-        alert('Pedido Ultrapassa o Limite de Crédito Disponível')
+        notify('Pedido Ultrapassa o Limite de Crédito Disponível')
         return
       }
     }
@@ -620,7 +622,7 @@ async function finalizarPedido() {
       cobCliente.map((r) => r.cobranca),
     )
     if (!finResult.ok) {
-      alert(finResult.msg)
+      notify(String(finResult.msg))
       return
     }
 
@@ -638,22 +640,22 @@ async function finalizarPedido() {
       await pushPedidos()
     }
     await refreshItens()
-    alert('Pedido Finalizado.')
+    notify('Pedido Finalizado.')
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
 async function nfe() {
   if (!store.cabecalho.numpedido) {
-    alert('Salve o pedido antes de emitir a NF-e.')
+    notify('Salve o pedido antes de emitir a NF-e.')
     return
   }
   try {
     await store.salvar()
     await emitirNfe(store.cabecalho.numpedido, store.cabecalho.lancto ?? 0)
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
@@ -661,7 +663,7 @@ async function boleto() {
   try {
     await emitirBoleto(store.cabecalho.lancto ?? 0)
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
@@ -674,13 +676,13 @@ const saldosRows = ref<SaldoFinanceiro[]>([])
 async function gerarTermo() {
   const lancto = store.cabecalho.lancto
   if (!lancto) {
-    alert('Pedido sem lançamento')
+    notify('Pedido sem lançamento')
     return
   }
   try {
     await termo(lancto)
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
@@ -688,7 +690,7 @@ async function abrirSucata() {
   const cli = store.cabecalho.clifor
   const codlic = auth.usuario?.codlic
   if (!cli || !codlic) {
-    alert('Selecione um Cliente.')
+    notify('Selecione um Cliente.')
     return
   }
   showSucata.value = true
@@ -696,14 +698,14 @@ async function abrirSucata() {
   try {
     sucataRows.value = await saldoSucata(codlic, cli)
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
 async function abrirSaldos() {
   const cli = store.cabecalho.clifor
   if (!cli) {
-    alert('Selecione um Cliente.')
+    notify('Selecione um Cliente.')
     return
   }
   showSaldos.value = true
@@ -711,25 +713,25 @@ async function abrirSaldos() {
   try {
     saldosRows.value = await saldosFinanceiro(cli)
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
 async function reabrir() {
   try {
     await store.reabrir()
-    alert('Pedido reaberto.')
+    notify('Pedido reaberto.')
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
 async function transformar() {
   try {
     await store.transformarOrcamento()
-    alert('Orçamento transformado em pedido.')
+    notify('Orçamento transformado em pedido.')
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
@@ -738,7 +740,7 @@ async function duplicar() {
     await store.duplicar()
     router.push(`/pedidos/${store.cabecalho.numpedido}`)
   } catch (e) {
-    alert(msg(e))
+    notify(msg(e), 'error')
   }
 }
 
