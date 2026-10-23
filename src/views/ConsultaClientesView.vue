@@ -124,7 +124,13 @@ async function buscarGarantias() {
 <template>
   <AppShell>
     <div class="p-6">
-      <ScreenHeader title="Clientes" :back="false" />
+      <div class="flex items-center justify-between gap-3">
+        <ScreenHeader title="Clientes" :back="false" />
+        <RouterLink
+          :to="{ name: 'cliente-novo' }"
+          class="rounded-xl bg-accent-500 text-navy-950 font-semibold px-3 py-1.5 text-sm"
+        >Novo Cliente</RouterLink>
+      </div>
 
       <div class="grid grid-cols-2 gap-3 mb-3">
         <select v-model="col" class="input">
