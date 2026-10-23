@@ -18,6 +18,8 @@ export interface Usuario {
   altcli: string
   obscli: string
   finped: string
+  data_sinc?: string
+  hora_sinc?: string
 }
 
 export interface LoginInput {
