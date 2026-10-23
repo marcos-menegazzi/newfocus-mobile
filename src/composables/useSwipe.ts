@@ -1,4 +1,4 @@
-import { onBeforeUnmount, type Ref } from 'vue'
+import { onBeforeUnmount, onMounted, type Ref } from 'vue'
 
 const EDGE = 28
 const THRESHOLD = 60
@@ -39,7 +39,7 @@ export function useSwipe(
     el.value?.removeEventListener('touchmove', onMove)
   }
 
-  bind()
+  onMounted(bind)
 
   onBeforeUnmount(unbind)
 }
