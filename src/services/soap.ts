@@ -2,6 +2,15 @@ import { CapacitorHttp } from '@capacitor/core'
 
 export const WS_PATH = '/NewAgeWebServiceSetup/EASWebService.asmx?op=executarComando'
 
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
 export interface SoapCommandOptions {
   server: string
   comando: string
@@ -20,10 +29,10 @@ export function buildEnvelope(
     `<soapenv:Header/>` +
     `<soapenv:Body>` +
     `<tem:executarComando>` +
-    `<tem:comando>${comando}</tem:comando>` +
-    `<tem:CostumerId>${costumerId}</tem:CostumerId>` +
-    `<tem:strUsername>${username}</tem:strUsername>` +
-    `<tem:strPassword>${password}</tem:strPassword>` +
+    `<tem:comando>${escapeXml(comando)}</tem:comando>` +
+    `<tem:CostumerId>${escapeXml(costumerId)}</tem:CostumerId>` +
+    `<tem:strUsername>${escapeXml(username)}</tem:strUsername>` +
+    `<tem:strPassword>${escapeXml(password)}</tem:strPassword>` +
     `</tem:executarComando>` +
     `</soapenv:Body>` +
     `</soapenv:Envelope>`
