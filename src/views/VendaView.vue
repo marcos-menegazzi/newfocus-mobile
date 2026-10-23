@@ -37,7 +37,7 @@ const total = computed(() => {
   const q = route.query.total
   return typeof q === 'string' ? q : ''
 })
-const fat = computed(() => route.query.faturamento === 'S')
+const fat = computed(() => route.query.fat === 'S')
 
 const itens = ref<ItemRow[]>([])
 
