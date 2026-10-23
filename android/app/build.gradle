@@ -1,8 +1,23 @@
 apply plugin: 'com.android.application'
 
+def keystorePropertiesFile = file('../../keystores/release-signing.properties')
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace = "com.cordova.newfocus"
     compileSdk = rootProject.ext.compileSdkVersion
+    signingConfigs {
+        release {
+            storeFile file('../../keystores/newfocus-pedidos.keystore')
+            storeType keystoreProperties['storeType']
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storePassword keystoreProperties['storePassword']
+        }
+    }
     defaultConfig {
         applicationId "com.cordova.newfocus"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -20,6 +35,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
         }
     }
 }
