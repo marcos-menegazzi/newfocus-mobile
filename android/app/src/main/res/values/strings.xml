@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">NewFocus</string>
+    <string name="title_activity_main">NewFocus</string>
+    <string name="package_name">com.cordova.newfocus</string>
+    <string name="custom_url_scheme">com.cordova.newfocus</string>
+</resources>
