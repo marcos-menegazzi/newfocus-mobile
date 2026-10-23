@@ -2,11 +2,11 @@
 const props = defineProps<{ status: string }>()
 const MAP: Record<string, { label: string; cls: string }> = {
   A: { label: 'Aberto', cls: 'bg-ink-200 text-ink-600' },
-  F: { label: 'Finalizado', cls: 'bg-blue-100 text-blue-700' },
-  V: { label: 'Aguardando', cls: 'bg-yellow-100 text-yellow-700' },
-  S: { label: 'Sincronizado', cls: 'bg-green-100 text-green-700' },
-  Z: { label: 'Faturado', cls: 'bg-teal-100 text-teal-700' },
-  C: { label: 'Cancelado', cls: 'bg-red-100 text-red-700' },
+  F: { label: 'Finalizado', cls: 'bg-[#58ACFA] text-white' },
+  V: { label: 'Aguardando', cls: 'bg-[#EAB308] text-navy-950' },
+  S: { label: 'Sincronizado', cls: 'bg-[#22C55E] text-white' },
+  Z: { label: 'Faturado', cls: 'bg-[#0be1a4] text-navy-950' },
+  C: { label: 'Cancelado', cls: 'bg-[#EF4444] text-white' },
 }
 const chip = MAP[props.status] ?? { label: props.status, cls: 'bg-ink-200 text-ink-600' }
 </script>

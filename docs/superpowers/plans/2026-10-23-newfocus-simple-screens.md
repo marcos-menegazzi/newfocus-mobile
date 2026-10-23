@@ -167,11 +167,11 @@ git commit -m "feat(ui): format + last-sync + pdf utilities"
 const props = defineProps<{ status: string }>()
 const MAP: Record<string, { label: string; cls: string }> = {
   A: { label: 'Aberto', cls: 'bg-ink-200 text-ink-600' },
-  F: { label: 'Finalizado', cls: 'bg-blue-100 text-blue-700' },
-  V: { label: 'Aguardando', cls: 'bg-yellow-100 text-yellow-700' },
-  S: { label: 'Sincronizado', cls: 'bg-green-100 text-green-700' },
-  Z: { label: 'Faturado', cls: 'bg-teal-100 text-teal-700' },
-  C: { label: 'Cancelado', cls: 'bg-red-100 text-red-700' },
+  F: { label: 'Finalizado', cls: 'bg-[#58ACFA] text-white' },
+  V: { label: 'Aguardando', cls: 'bg-[#EAB308] text-navy-950' },
+  S: { label: 'Sincronizado', cls: 'bg-[#22C55E] text-white' },
+  Z: { label: 'Faturado', cls: 'bg-[#0be1a4] text-navy-950' },
+  C: { label: 'Cancelado', cls: 'bg-[#EF4444] text-white' },
 }
 const chip = MAP[props.status] ?? { label: props.status, cls: 'bg-ink-200 text-ink-600' }
 </script>
@@ -186,13 +186,13 @@ const chip = MAP[props.status] ?? { label: props.status, cls: 'bg-ink-200 text-i
 ```vue
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-defineProps<{ title: string }>()
+defineProps<{ title: string; back?: boolean }>()
 const router = useRouter()
 </script>
 
 <template>
   <div class="flex items-center gap-3 mb-4">
-    <button class="p-2 -ml-2 rounded-lg text-ink-600 hover:bg-ink-200" aria-label="Voltar" @click="router.back()">
+    <button v-if="back !== false" class="p-2 -ml-2 rounded-lg text-ink-600 hover:bg-ink-200" aria-label="Voltar" @click="router.back()">
       <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
     </button>
     <h1 class="text-lg font-bold text-ink-900">{{ title }}</h1>
