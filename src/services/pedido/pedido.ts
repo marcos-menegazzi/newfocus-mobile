@@ -44,7 +44,7 @@ async function totalPedido(numpedido: string): Promise<number> {
   return Number(rows[0]?.total ?? 0)
 }
 
-export async function salvarCabecalho(args: CabecalhoInput): Promise<void> {
+export async function salvarCabecalho(args: CabecalhoInput): Promise<string> {
   const obsped = String(args.obsped ?? '').replace(/["']/g, '')
   const complemento = String(args.complemento ?? '').replace(/["']/g, '')
   const valorFrete = Number(args.valor_frete) || 0
@@ -63,6 +63,7 @@ export async function salvarCabecalho(args: CabecalhoInput): Promise<void> {
         gerarIdUnico(), args.numero, args.peso_total, args.retsuc, args.resolvido,
         args.cliente_nome, args.cliente_cpf, args.vendedor, valorFrete],
     )
+    return numpedido
   } else {
     await run(
       `UPDATE ped SET operacao=?, clifor=?, empresa=?, condpag=?, total=?, data=?, status=?, obsped=?, tabela=?, carga=?, tipo=?, comissao=?, complemento=?, numero=?, peso_total=?, retsuc=?, resolvido=?, cliente_nome=?, cliente_cpf=?, vendedor=?, valor_frete = CASE WHEN status = 'A' THEN ? ELSE valor_frete END WHERE numpedido = ?`,
@@ -71,6 +72,7 @@ export async function salvarCabecalho(args: CabecalhoInput): Promise<void> {
         args.peso_total, args.retsuc, args.resolvido, args.cliente_nome, args.cliente_cpf,
         args.vendedor, valorFrete, args.numpedido],
     )
+    return args.numpedido
   }
 }
 

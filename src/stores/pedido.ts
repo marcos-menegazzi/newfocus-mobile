@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { query } from '../db/connection'
 import {
   salvarCabecalho,
   carregarPedido,
@@ -15,13 +16,28 @@ export const usePedidoStore = defineStore('pedido', {
     cabecalho: {} as Record<string, any>,
     itens: [] as any[],
     parcelas: [] as any[],
+    fatores: [] as [string, string, number][],
+    tabelas: [] as { codigo: number; flex: number }[],
+    mvtpreco: [] as any[],
     pedstatus: '',
     carregando: false,
   }),
   actions: {
+    async carregarPrecos() {
+      const [fatores, tabelas, mvtpreco] = await Promise.all([
+        query<any>('SELECT produto, unidade, fator FROM fatores'),
+        query<any>('SELECT codigo, flex FROM tpreco'),
+        query<any>('SELECT tabela_codigo, produto, venda, maximo, minimo FROM mvtpreco'),
+      ])
+      this.fatores = fatores.map(
+        (f: any) => [String(f.produto), String(f.unidade), Number(f.fator)] as [string, string, number],
+      )
+      this.tabelas = tabelas.map((t: any) => ({ codigo: Number(t.codigo), flex: Number(t.flex) }))
+      this.mvtpreco = mvtpreco
+    },
     async novo() {
       const pre = await novopedidoPrefill()
-      this.cabecalho = { ...pre, numpedido: '' }
+      this.cabecalho = { ...pre, numpedido: '', status: 'A' }
       this.itens = []
       this.parcelas = []
       this.pedstatus = 'A'
@@ -37,7 +53,9 @@ export const usePedidoStore = defineStore('pedido', {
       }
     },
     async salvar() {
-      await salvarCabecalho(this.cabecalho as any)
+      const numpedido = await salvarCabecalho(this.cabecalho as any)
+      this.cabecalho.numpedido = numpedido
+      return numpedido
     },
     async cancelar() {
       await cancelarPedido(this.cabecalho.numpedido, {

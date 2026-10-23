@@ -1,16 +1,26 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ScreenHeader from '../components/ScreenHeader.vue'
+import StatusChip from '../components/StatusChip.vue'
 import { query } from '../db/connection'
 import { formatReal } from '../lib/format'
-import { listarItens } from '../services/pedido/itens'
+import { getfator } from '../services/pedido/calc'
+import { calcPreco } from '../services/pedido/preco'
+import { listarItens, incluirItem, gravarItem, excluirItem } from '../services/pedido/itens'
+import { aplicarDesconto, aplicarAcrescimo } from '../services/pedido/desconto'
+import { incluirParcela, excluirParcela, listarParcelas } from '../services/pedido/financeiro'
+import { finalizar } from '../services/pedido/finalizar'
+import { emitirNfe, emitirBoleto } from '../services/sync/fiscal'
+import { pushClientes } from '../services/sync/clientes'
+import { pushPedidos } from '../services/sync/pedidos'
 import { useAuthStore } from '../stores/auth'
 import { usePedidoStore } from '../stores/pedido'
 
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 const store = usePedidoStore()
 
@@ -31,11 +41,19 @@ const tabelas = ref<any[]>([])
 const cargas = ref<any[]>([])
 const comissoes = ref<any[]>([])
 const operacoes = ref<any[]>([])
+const cobrancas = ref<any[]>([])
 
+const itens = ref<any[]>([])
 const total = ref(0)
 const quantidade = ref(0)
 const flexPedido = ref(0)
 const saldoFlex = computed(() => Number(auth.usuario?.saldoflex ?? 0))
+
+const NFE: string = 'N'
+
+function msg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
 
 const cliente = reactive({
   id: 0,
@@ -70,26 +88,31 @@ const cargaLabel = computed(() => {
 })
 const operacaoLabel = computed(() => store.cabecalho.operacao || 'Selecionar Operação')
 
+const isEdit = computed(() => !!store.cabecalho.numpedido)
+
 function today(): string {
-  return new Date().toISOString().slice(0, 10)
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 async function refreshItens() {
   const n = store.cabecalho.numpedido
   if (!n) {
+    itens.value = []
     total.value = 0
     quantidade.value = 0
     flexPedido.value = 0
     return
   }
   const r = await listarItens(n)
+  itens.value = r.rows
   total.value = r.total
   flexPedido.value = r.flex
   quantidade.value = r.rows.reduce((acc, x) => acc + Number(x.qtd || 0), 0)
 }
 
 async function buscarClientes() {
-  let sql = 'SELECT *, 0 AS utilizado FROM clifor cf WHERE inativo <> \'S\''
+  let sql = 'SELECT * FROM clifor cf WHERE inativo <> \'S\''
   const params: unknown[] = []
   const term = clienteBusca.value.trim()
   if (term) {
@@ -167,8 +190,435 @@ function aplicarCarga(row: any) {
   showCarga.value = false
 }
 
+function validarCabecalho(): string | null {
+  const c = store.cabecalho
+  if (!c.data) return 'Informe a Data do Pedido.'
+  if (!c.empresa) return 'Selecione uma Empresa.'
+  if (!c.clifor) return 'Selecione um Cliente.'
+  if (!c.operacao) return 'Selecione uma Operação.'
+  if (!c.condpag) return 'Selecione uma Condição de Pagamento.'
+  if (!c.tabela) return 'Selecione uma Tabela de Preço.'
+  if (!c.carga) return 'Selecione uma Carga.'
+  if (!c.comissao) return 'Selecione uma Tabela de Comissão.'
+  return null
+}
+
+async function ensureNumpedido(): Promise<string | null> {
+  if (store.cabecalho.numpedido) return store.cabecalho.numpedido
+  const err = validarCabecalho()
+  if (err) {
+    alert(err)
+    return null
+  }
+  await store.salvar()
+  return store.cabecalho.numpedido
+}
+
+// --- Incluir (produtos) ---
+const PROD_FIELDS: Record<string, string> = {
+  descred: 'descred',
+  descricao: 'descricao',
+  codigo: 'codigo',
+}
+const prodCampo = ref('descricao')
+const prodBusca = ref('')
+const produtos = ref<any[]>([])
+const prodSearched = ref(false)
+const prodPage = ref(0)
+const PROD_LIMIT = 30
+
+async function buscarProdutos(reset = true) {
+  if (!store.cabecalho.tabela) {
+    alert('Selecione uma Tabela de Preço.')
+    return
+  }
+  if (reset) {
+    prodPage.value = 0
+    produtos.value = []
+  }
+  const field = PROD_FIELDS[prodCampo.value]
+  let sql = `SELECT x.*, m.venda, m.maximo, m.minimo, t.codigo AS tabela
+    FROM (SELECT p.*, e.estoque, p.${field} AS descvis
+          FROM produtos p LEFT JOIN estoque e ON p.codigo = e.codigo AND e.empresa = ? AND e.local = ?) x,
+         tpreco t, mvtpreco m
+    WHERE t.codigo = m.tabela_codigo AND m.produto = x.codigo AND m.tabela_codigo = ?`
+  const params: unknown[] = [
+    store.cabecalho.empresa ?? '',
+    store.cabecalho.local ?? '',
+    store.cabecalho.tabela,
+  ]
+  const term = prodBusca.value.trim()
+  if (term) {
+    sql += ` AND x.${field} LIKE ?`
+    params.push(`%${term}%`)
+  }
+  sql += ' ORDER BY descvis LIMIT ? OFFSET ?'
+  params.push(PROD_LIMIT, prodPage.value * PROD_LIMIT)
+  const rows = await query<any>(sql, params)
+  rows.forEach((r) => {
+    r.qtd = 1
+    r.unidade = ''
+  })
+  produtos.value = reset ? rows : produtos.value.concat(rows)
+  prodSearched.value = true
+}
+
+async function maisProdutos() {
+  prodPage.value += 1
+  await buscarProdutos(false)
+}
+
+async function quickAdd(p: any) {
+  const n = await ensureNumpedido()
+  if (!n) return
+  try {
+    await incluirItem({
+      numpedido: n,
+      codproduto: p.codigo,
+      quantidade: Number(p.qtd) || 0,
+      venda: Number(p.venda) || 0,
+      maximo: Number(p.maximo) || 0,
+      minimo: Number(p.minimo) || 0,
+      descinc: 0,
+      desconto: 0,
+      descper: 'N',
+      operacao: store.cabecalho.operacao,
+      condicao: store.cabecalho.condpag,
+      comissao: store.cabecalho.comissao,
+      tabela: p.tabela,
+      unidade: p.unidade ?? '',
+      fatores: store.fatores,
+      tabelas: store.tabelas,
+      estoque: Number(p.estoque) || 0,
+      cEstoque: store.cabecalho.estoque,
+      libmin: auth.usuario?.libmin === 'S',
+    })
+    await refreshItens()
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+// --- Product modal ---
+const modal = reactive({
+  open: false,
+  codproduto: '',
+  descricao: '',
+  venda: 0,
+  maximo: 0,
+  minimo: 0,
+  tabela: 0,
+  estoque: 0,
+  quantidade: 1,
+  unidade: '',
+  descinc: 0,
+  desconto: 0,
+  descper: 'N',
+})
+
+const modalFator = computed(() => getfator(store.fatores, modal.codproduto, modal.unidade))
+const modalPreview = computed(() =>
+  calcPreco({
+    venda: modal.venda,
+    maximo: modal.maximo,
+    minimo: modal.minimo,
+    descinc: modal.descinc,
+    quantidade: Number(modal.quantidade) || 0,
+    fator: modalFator.value,
+    desconto: modal.desconto,
+    descper: modal.descper as 'S' | 'N',
+    tabela: modal.tabela,
+    tabelas: store.tabelas,
+  }),
+)
+
+function abrirModalProduto(p: any) {
+  modal.codproduto = p.codigo
+  modal.descricao = p.descvis || p.descricao
+  modal.venda = Number(p.venda) || 0
+  modal.maximo = Number(p.maximo) || 0
+  modal.minimo = Number(p.minimo) || 0
+  modal.tabela = Number(p.tabela) || 0
+  modal.estoque = Number(p.estoque) || 0
+  modal.quantidade = 1
+  modal.unidade = ''
+  modal.descinc = 0
+  modal.desconto = 0
+  modal.descper = 'N'
+  modal.open = true
+}
+
+async function abrirModalItem(row: any) {
+  const preco = store.mvtpreco.find(
+    (m) => String(m.produto) === String(row.codproduto) && String(m.tabela_codigo) === String(row.tabela),
+  )
+  modal.codproduto = row.codproduto
+  modal.descricao = row.descricao
+  modal.venda = Number(preco?.venda) || 0
+  modal.maximo = Number(preco?.maximo) || 0
+  modal.minimo = Number(preco?.minimo) || 0
+  modal.tabela = Number(row.tabela) || 0
+  modal.quantidade = Number(row.qtd) || 1
+  modal.unidade = row.unidade ?? ''
+  modal.descinc = Number(row.descinc) || 0
+  modal.desconto = Number(row.descto) || 0
+  modal.descper = row.descper ?? 'N'
+  modal.estoque = 0
+  if (store.cabecalho.estoque === 'S') {
+    const est = await query<any>(
+      'SELECT estoque FROM estoque WHERE codigo=? AND empresa=? AND local=?',
+      [row.codproduto, store.cabecalho.empresa, store.cabecalho.local],
+    )
+    modal.estoque = Number(est[0]?.estoque) || 0
+  }
+  modal.open = true
+}
+
+async function gravarModal() {
+  const n = await ensureNumpedido()
+  if (!n) return
+  try {
+    await gravarItem({
+      numpedido: n,
+      codproduto: modal.codproduto,
+      quantidade: Number(modal.quantidade) || 0,
+      venda: modal.venda,
+      maximo: modal.maximo,
+      minimo: modal.minimo,
+      descinc: Number(modal.descinc) || 0,
+      desconto: Number(modal.desconto) || 0,
+      descper: modal.descper,
+      operacao: store.cabecalho.operacao,
+      condicao: store.cabecalho.condpag,
+      comissao: store.cabecalho.comissao,
+      tabela: modal.tabela,
+      unidade: modal.unidade,
+      fatores: store.fatores,
+      tabelas: store.tabelas,
+      estoque: modal.estoque,
+      cEstoque: store.cabecalho.estoque,
+      libmin: auth.usuario?.libmin === 'S',
+    })
+    modal.open = false
+    await refreshItens()
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+// --- Itens ---
+function descontoLabel(row: any): string {
+  const d = Number(row.descto || 0)
+  if (d === 0) return '—'
+  return row.descper === 'S' ? `${d}%` : formatReal(d)
+}
+
+async function removerItem(row: any) {
+  if (!confirm('Excluir este item?')) return
+  await excluirItem(store.cabecalho.numpedido, row.codproduto, row.tabela)
+  await refreshItens()
+}
+
+// --- Desconto ---
+const descontoModo = ref<'percent' | 'reais'>('percent')
+const descontoValor = ref<number | null>(null)
+
+async function aplicarDescontoPedido() {
+  const n = await ensureNumpedido()
+  if (!n) return
+  try {
+    await aplicarDesconto(n, {
+      aplicar: true,
+      valor: Number(descontoValor.value) || 0,
+      porItem: descontoModo.value === 'reais',
+    })
+    await refreshItens()
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+async function removerDesconto() {
+  const n = store.cabecalho.numpedido
+  if (!n) return
+  try {
+    await aplicarDesconto(n, { aplicar: false, valor: 0, porItem: false })
+    await refreshItens()
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+// --- Financeiro ---
+const fin = reactive({ cobranca: '', condicao: '', valor: '', autorizacao: '' })
+const parcelas = ref<any[]>([])
+const remaining = ref(0)
+
+async function refreshParcelas() {
+  const n = store.cabecalho.numpedido
+  if (!n) {
+    parcelas.value = []
+    remaining.value = 0
+    return
+  }
+  const r = await listarParcelas(n)
+  parcelas.value = r.rows
+  remaining.value = r.remaining
+}
+
+async function gravarParcela() {
+  const n = await ensureNumpedido()
+  if (!n) return
+  try {
+    await incluirParcela(n, fin.cobranca, fin.condicao, Number(fin.valor) || 0, fin.autorizacao, total.value)
+    fin.valor = ''
+    fin.autorizacao = ''
+    await refreshParcelas()
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+async function removerParcela(id: number) {
+  await excluirParcela(id)
+  await refreshParcelas()
+}
+
+// --- Negociação ---
+const acrescimo = reactive({ vlquilo: '', vlunidade: '' })
+const snquilo = ref(false)
+const snunidade = ref(false)
+
+function preloadNegociacao() {
+  const c = store.cabecalho
+  acrescimo.vlquilo = c.valor_quilo ?? ''
+  acrescimo.vlunidade = c.valor_unidade ?? ''
+  snquilo.value = c.snquilo === 'S'
+  snunidade.value = c.snunidade === 'S'
+}
+
+async function aplicarAcrescimoPedido() {
+  const n = await ensureNumpedido()
+  if (!n) return
+  try {
+    await aplicarAcrescimo(n, {
+      aplicar: true,
+      vlquilo: Number(acrescimo.vlquilo) || 0,
+      vlunidade: Number(acrescimo.vlunidade) || 0,
+      snquilo: snquilo.value ? 'S' : 'N',
+      snunidade: snunidade.value ? 'S' : 'N',
+    })
+    await refreshItens()
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+async function removerAcrescimo() {
+  const n = store.cabecalho.numpedido
+  if (!n) return
+  try {
+    await aplicarAcrescimo(n, { aplicar: false, vlquilo: 0, vlunidade: 0, snquilo: 'N', snunidade: 'N' })
+    await refreshItens()
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+// --- Footer actions ---
+async function cancelarPedido() {
+  if (!store.cabecalho.numpedido) {
+    alert('Salve o pedido antes de cancelar.')
+    return
+  }
+  try {
+    await store.cancelar()
+    alert('Pedido cancelado.')
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+function imprimir() {
+  alert('impressão em breve')
+}
+
+async function finalizarPedido() {
+  try {
+    const n = await ensureNumpedido()
+    if (!n) return
+    if (store.pedstatus !== 'A') {
+      alert('Pedido não está aberto.')
+      return
+    }
+    await finalizar(n, {
+      cEstoque: store.cabecalho.estoque,
+      empresa: store.cabecalho.empresa,
+      local: store.cabecalho.local,
+      nfe: NFE,
+    })
+    store.pedstatus = 'F'
+    store.cabecalho.status = 'F'
+    if (NFE === 'S') {
+      await pushClientes()
+      await pushPedidos()
+    }
+    await refreshItens()
+    alert('Pedido Finalizado.')
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+async function nfe() {
+  if (!store.cabecalho.numpedido) {
+    alert('Salve o pedido antes de emitir a NF-e.')
+    return
+  }
+  try {
+    await emitirNfe(store.cabecalho.numpedido, store.cabecalho.lancto ?? 0)
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+async function boleto() {
+  try {
+    await emitirBoleto(store.cabecalho.lancto ?? 0)
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+async function reabrir() {
+  try {
+    await store.reabrir()
+    alert('Pedido reaberto.')
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+async function transformar() {
+  try {
+    await store.transformarOrcamento()
+    alert('Orçamento transformado em pedido.')
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+async function duplicar() {
+  try {
+    await store.duplicar()
+    router.push(`/pedidos/${store.cabecalho.numpedido}`)
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
 onMounted(async () => {
-  ;[empresas.value, vendedores.value, condicoes.value, tabelas.value, cargas.value, comissoes.value] =
+  ;[empresas.value, vendedores.value, condicoes.value, tabelas.value, cargas.value, comissoes.value, cobrancas.value] =
     await Promise.all([
       query<any>('SELECT * FROM empresas'),
       query<any>('SELECT * FROM vendedores'),
@@ -176,7 +626,10 @@ onMounted(async () => {
       query<any>("SELECT * FROM tpreco WHERE usa_cliente = 'N'"),
       query<any>("SELECT * FROM carga WHERE inativo = 'N'"),
       query<any>('SELECT * FROM comissao'),
+      query<any>('SELECT * FROM cobrancas'),
     ])
+
+  await store.carregarPrecos()
 
   const p = route.params.numpedido
   const n = Array.isArray(p) ? p[0] : p
@@ -188,7 +641,9 @@ onMounted(async () => {
   }
   if (!store.cabecalho.data) store.cabecalho.data = today()
   if (!store.cabecalho.tipo) store.cabecalho.tipo = 'S'
+  preloadNegociacao()
   await refreshItens()
+  await refreshParcelas()
 })
 </script>
 
@@ -198,9 +653,12 @@ onMounted(async () => {
       <ScreenHeader title="Novo Pedido" />
 
       <section class="bg-white rounded-card shadow-card p-4 mb-4 grid grid-cols-2 gap-3">
-        <div>
-          <p class="text-ink-400 text-xs">Nº Pedido</p>
-          <p class="text-ink-900 font-bold">{{ store.cabecalho.numpedido || 'Novo' }}</p>
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <p class="text-ink-400 text-xs">Nº Pedido</p>
+            <p class="text-ink-900 font-bold">{{ store.cabecalho.numpedido || 'Novo' }}</p>
+          </div>
+          <StatusChip v-if="store.cabecalho.numpedido" :status="store.pedstatus" />
         </div>
         <div>
           <p class="text-ink-400 text-xs">Total</p>
@@ -335,15 +793,249 @@ onMounted(async () => {
         </section>
       </div>
 
-      <EmptyState v-else :label="`${TABS.find((t) => t.key === tab)?.label ?? ''} — em breve`" />
+      <div v-else-if="tab === 'incluir'" class="space-y-4">
+        <section class="bg-white rounded-card shadow-card p-5">
+          <h2 class="text-sm font-bold text-ink-900 mb-3">Incluir Produto</h2>
+          <div class="flex gap-2 mb-3">
+            <select v-model="prodCampo" class="input w-32 shrink-0">
+              <option value="descricao">Descrição</option>
+              <option value="descred">Desc. Reduzida</option>
+              <option value="codigo">Código</option>
+            </select>
+            <input
+              v-model="prodBusca"
+              class="input flex-1"
+              type="text"
+              placeholder="Buscar produto..."
+              @keyup.enter="buscarProdutos()"
+            />
+            <button class="btn-primary shrink-0 px-4" @click="buscarProdutos()">Buscar</button>
+          </div>
+
+          <EmptyState v-if="prodSearched && produtos.length === 0" label="Nenhum produto encontrado" />
+          <div v-else class="grid grid-cols-1 gap-3">
+            <div v-for="p in produtos" :key="p.codigo" class="rounded-xl border border-ink-200 p-4">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <p class="text-sm font-semibold text-ink-900 truncate">{{ p.descvis }}</p>
+                  <p class="text-xs text-ink-400">Cód. {{ p.codigo }} · Estoque {{ p.estoque ?? 0 }}</p>
+                  <p class="text-xs font-semibold text-accent-600">{{ formatReal(p.venda) }}</p>
+                </div>
+                <button class="p-1 text-ink-400 shrink-0" aria-label="Editar" @click="abrirModalProduto(p)">
+                  <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path stroke-linecap="round" stroke-linejoin="round" d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+              </div>
+              <div class="flex items-center gap-2 mt-3">
+                <input v-model="p.qtd" type="number" min="0" class="input w-20" placeholder="Qtd" />
+                <input v-model="p.unidade" type="text" class="input w-20" placeholder="Un." />
+                <button class="btn-primary flex-1 text-sm" @click="quickAdd(p)">Adicionar</button>
+              </div>
+            </div>
+          </div>
+          <button
+            v-if="produtos.length >= PROD_LIMIT"
+            class="w-full mt-3 py-2 text-sm font-semibold text-accent-600"
+            @click="maisProdutos"
+          >Mais resultados</button>
+        </section>
+      </div>
+
+      <div v-else-if="tab === 'itens'" class="space-y-4">
+        <section class="bg-white rounded-card shadow-card p-5">
+          <h2 class="text-sm font-bold text-ink-900 mb-3">Itens</h2>
+          <EmptyState v-if="itens.length === 0" label="Nenhum item no pedido" />
+          <div v-else class="overflow-x-auto -mx-5">
+            <table class="w-full text-sm min-w-[480px]">
+              <thead>
+                <tr class="text-left text-xs text-ink-400">
+                  <th class="py-2 px-4 font-medium">Produto</th>
+                  <th class="py-2 px-2 font-medium">Qtd</th>
+                  <th class="py-2 px-2 font-medium">Vl. Unit</th>
+                  <th class="py-2 px-2 font-medium">Desc.</th>
+                  <th class="py-2 px-2 font-medium">Total</th>
+                  <th class="py-2 px-2 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-ink-200">
+                <tr v-for="i in itens" :key="i.idpedido">
+                  <td class="py-2 px-4">
+                    <p class="font-medium text-ink-900 truncate">{{ i.descricao }}</p>
+                    <p class="text-xs text-ink-400">{{ i.codproduto }}</p>
+                  </td>
+                  <td class="py-2 px-2 text-ink-600">{{ i.qtd }}</td>
+                  <td class="py-2 px-2 text-ink-600">{{ formatReal(i.vlunit) }}</td>
+                  <td class="py-2 px-2 text-ink-600">{{ descontoLabel(i) }}</td>
+                  <td class="py-2 px-2 font-semibold text-ink-900">{{ formatReal(i.vltotal) }}</td>
+                  <td class="py-2 px-2 whitespace-nowrap">
+                    <button class="p-1 text-ink-400" aria-label="Editar" @click="abrirModalItem(i)">
+                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path stroke-linecap="round" stroke-linejoin="round" d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </button>
+                    <button class="p-1 text-ink-400" aria-label="Excluir" @click="removerItem(i)">
+                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div v-else-if="tab === 'desconto'" class="space-y-4">
+        <section class="bg-white rounded-card shadow-card p-5">
+          <h2 class="text-sm font-bold text-ink-900 mb-3">Desconto</h2>
+          <div class="grid grid-cols-1 gap-3">
+            <div class="flex gap-2">
+              <button
+                class="flex-1 rounded-xl py-2 text-sm font-semibold"
+                :class="descontoModo === 'percent' ? 'bg-accent-500 text-navy-950' : 'bg-navy-800 text-ink-200'"
+                @click="descontoModo = 'percent'"
+              >%</button>
+              <button
+                class="flex-1 rounded-xl py-2 text-sm font-semibold"
+                :class="descontoModo === 'reais' ? 'bg-accent-500 text-navy-950' : 'bg-navy-800 text-ink-200'"
+                @click="descontoModo = 'reais'"
+              >R$ (por item)</button>
+            </div>
+            <label class="block">
+              <span class="text-ink-600 text-xs font-medium">Valor do desconto</span>
+              <input v-model.number="descontoValor" type="number" min="0" class="input" placeholder="0,00" />
+            </label>
+            <div class="grid grid-cols-2 gap-3">
+              <button class="btn-primary text-sm" @click="aplicarDescontoPedido">Aplicar</button>
+              <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-4 text-sm" @click="removerDesconto">Remover</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div v-else-if="tab === 'financeiro'" class="space-y-4">
+        <section class="bg-white rounded-card shadow-card p-5">
+          <h2 class="text-sm font-bold text-ink-900 mb-3">Financeiro</h2>
+          <div class="grid grid-cols-1 gap-3">
+            <label class="block">
+              <span class="text-ink-600 text-xs font-medium">Cobrança</span>
+              <select v-model="fin.cobranca" class="input">
+                <option value="" disabled>Selecione a Cobrança</option>
+                <option v-for="c in cobrancas" :key="c.codigo" :value="c.codigo">{{ c.descr }}</option>
+              </select>
+            </label>
+            <label class="block">
+              <span class="text-ink-600 text-xs font-medium">Condição</span>
+              <select v-model="fin.condicao" class="input">
+                <option value="" disabled>Selecione a Condição</option>
+                <option v-for="c in condicoes" :key="c.codigo" :value="c.codigo">{{ c.descr }}</option>
+              </select>
+            </label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block">
+                <span class="text-ink-600 text-xs font-medium">Valor</span>
+                <input v-model="fin.valor" type="number" min="0" step="0.01" class="input" placeholder="0,00" />
+              </label>
+              <label class="block">
+                <span class="text-ink-600 text-xs font-medium">Autorização</span>
+                <input v-model="fin.autorizacao" type="text" class="input" />
+              </label>
+            </div>
+            <button class="btn-primary text-sm" @click="gravarParcela">Gravar</button>
+          </div>
+
+          <p class="mt-4 text-sm font-semibold text-ink-900">
+            Restante: {{ formatReal(remaining) }}
+          </p>
+
+          <EmptyState v-if="parcelas.length === 0" label="Nenhuma parcela" />
+          <ul v-else class="mt-3 divide-y divide-ink-200">
+            <li v-for="pa in parcelas" :key="pa.idfinanceiro" class="py-3 flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <p class="text-sm font-medium text-ink-900">{{ pa.cobdesc || pa.cobranca }} · {{ pa.condesc || pa.condicao }}</p>
+                <p class="text-xs text-ink-400">{{ pa.autorizacao || '—' }}</p>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="text-sm font-semibold text-ink-900">{{ formatReal(pa.valor) }}</span>
+                <button class="p-1 text-ink-400" aria-label="Excluir" @click="removerParcela(pa.idfinanceiro)">
+                  <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+                </button>
+              </div>
+            </li>
+          </ul>
+        </section>
+      </div>
+
+      <div v-else-if="tab === 'negociacao'" class="space-y-4">
+        <section class="bg-white rounded-card shadow-card p-5">
+          <h2 class="text-sm font-bold text-ink-900 mb-3">Negociação</h2>
+          <div class="grid grid-cols-1 gap-3">
+            <label class="block">
+              <span class="text-ink-600 text-xs font-medium">Frete</span>
+              <input v-model="store.cabecalho.valor_frete" type="number" min="0" step="0.01" class="input" placeholder="0,00" />
+            </label>
+            <label class="block">
+              <span class="text-ink-600 text-xs font-medium">Retsuc</span>
+              <input v-model="store.cabecalho.retsuc" type="number" min="0" step="0.01" class="input" placeholder="0,00" />
+            </label>
+
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-sm font-medium text-ink-900">Acréscimo por quilo</span>
+              <input v-model="snquilo" type="checkbox" class="h-5 w-5" />
+            </div>
+            <label class="block" :class="{ 'opacity-50': !snquilo }">
+              <span class="text-ink-600 text-xs font-medium">Valor por quilo</span>
+              <input v-model="acrescimo.vlquilo" type="number" min="0" step="0.01" class="input" placeholder="0,00" />
+            </label>
+
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-sm font-medium text-ink-900">Acréscimo por unidade</span>
+              <input v-model="snunidade" type="checkbox" class="h-5 w-5" />
+            </div>
+            <label class="block" :class="{ 'opacity-50': !snunidade }">
+              <span class="text-ink-600 text-xs font-medium">Valor por unidade</span>
+              <input v-model="acrescimo.vlunidade" type="number" min="0" step="0.01" class="input" placeholder="0,00" />
+            </label>
+
+            <div class="grid grid-cols-2 gap-3">
+              <button class="btn-primary text-sm" @click="aplicarAcrescimoPedido">Aplicar</button>
+              <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-4 text-sm" @click="removerAcrescimo">Remover</button>
+            </div>
+
+            <div class="flex items-center justify-between gap-3 pt-1">
+              <span class="text-sm font-medium text-ink-900">Resolvido</span>
+              <input
+                type="checkbox"
+                class="h-5 w-5"
+                :checked="store.cabecalho.resolvido === 'S'"
+                @change="store.cabecalho.resolvido = ($event.target as HTMLInputElement).checked ? 'S' : 'N'"
+              />
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
 
     <div class="sticky bottom-0 z-10 mt-4 bg-white border-t border-ink-200 px-6 py-4 safe-bottom">
       <div class="grid grid-cols-4 gap-2">
-        <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm">Cancelar</button>
-        <button class="btn-primary text-sm">Finalizar</button>
-        <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm">NF-e</button>
-        <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm">Boleto</button>
+        <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm" @click="cancelarPedido">Cancelar</button>
+        <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm" @click="imprimir">Imprimir</button>
+        <button class="btn-primary text-sm" @click="finalizarPedido">Finalizar</button>
+        <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm" @click="nfe">NF-e</button>
+      </div>
+      <div class="grid grid-cols-4 gap-2 mt-2">
+        <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm" @click="boleto">Boleto</button>
+        <button
+          v-if="store.pedstatus === 'F'"
+          class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm"
+          @click="reabrir"
+        >Reabrir</button>
+        <button
+          v-if="store.cabecalho.tipo === 'O'"
+          class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm"
+          @click="transformar"
+        >Transf. Pedido</button>
+        <button
+          v-if="isEdit"
+          class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm"
+          @click="duplicar"
+        >Duplicar</button>
       </div>
     </div>
 
@@ -422,6 +1114,65 @@ onMounted(async () => {
           </li>
         </ul>
         <button class="w-full mt-3 py-2 text-sm font-semibold text-ink-600" @click="showCarga = false">Fechar</button>
+      </div>
+    </div>
+
+    <div
+      v-if="modal.open"
+      class="fixed inset-0 z-40 flex items-end justify-center bg-black/50"
+      @click.self="modal.open = false"
+    >
+      <div class="w-full max-h-[90vh] overflow-auto rounded-t-2xl bg-white p-5">
+        <h2 class="text-lg font-bold text-ink-900 mb-1">Produto</h2>
+        <p class="text-xs text-ink-400 mb-3">{{ modal.codproduto }} · {{ modal.descricao }}</p>
+
+        <div class="grid grid-cols-1 gap-3">
+          <label class="block">
+            <span class="text-ink-600 text-xs font-medium">Quantidade</span>
+            <input v-model.number="modal.quantidade" type="number" min="0" class="input" />
+          </label>
+          <label class="block">
+            <span class="text-ink-600 text-xs font-medium">Unidade</span>
+            <input v-model="modal.unidade" type="text" class="input" placeholder="vazio = sem conversão" />
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="block">
+              <span class="text-ink-600 text-xs font-medium">Desc. Incluso (%)</span>
+              <input v-model.number="modal.descinc" type="number" min="0" class="input" />
+            </label>
+            <label class="block">
+              <span class="text-ink-600 text-xs font-medium">Fator</span>
+              <input :value="modalFator" type="text" class="input" disabled />
+            </label>
+          </div>
+          <div class="flex gap-2">
+            <button
+              class="flex-1 rounded-xl py-2 text-sm font-semibold"
+              :class="modal.descper === 'N' ? 'bg-accent-500 text-navy-950' : 'bg-navy-800 text-ink-200'"
+              @click="modal.descper = 'N'"
+            >Desconto R$</button>
+            <button
+              class="flex-1 rounded-xl py-2 text-sm font-semibold"
+              :class="modal.descper === 'S' ? 'bg-accent-500 text-navy-950' : 'bg-navy-800 text-ink-200'"
+              @click="modal.descper = 'S'"
+            >Desconto %</button>
+          </div>
+          <label class="block">
+            <span class="text-ink-600 text-xs font-medium">Desconto</span>
+            <input v-model.number="modal.desconto" type="number" min="0" class="input" />
+          </label>
+
+          <div class="rounded-xl bg-navy-800 p-4 grid grid-cols-2 gap-3 text-xs">
+            <div><span class="text-ink-400">Vl. Base:</span> <span class="text-white font-semibold">{{ formatReal(modalPreview.vlunbase) }}</span></div>
+            <div><span class="text-ink-400">Vl. Unitário:</span> <span class="text-white font-semibold">{{ formatReal(modalPreview.vlunit) }}</span></div>
+            <div class="col-span-2"><span class="text-ink-400">Total:</span> <span class="text-white font-semibold">{{ formatReal(modal.quantidade > 0 ? modalPreview.total : 0) }}</span></div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <button class="btn-primary text-sm" @click="gravarModal">Gravar</button>
+            <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-4 text-sm" @click="modal.open = false">Fechar</button>
+          </div>
+        </div>
       </div>
     </div>
   </AppShell>
