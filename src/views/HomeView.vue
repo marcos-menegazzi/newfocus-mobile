@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import StatusChip from '../components/StatusChip.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -93,22 +94,23 @@ onMounted(async () => {
       <h2 class="text-sm font-semibold text-ink-900 mb-2">Últimos Pedidos</h2>
       <EmptyState v-if="ultimosPedidos.length === 0" label="Nenhum pedido" />
       <ul v-else class="divide-y divide-ink-200 bg-white rounded-card shadow-card overflow-hidden">
-        <li
-          v-for="pedido in ultimosPedidos"
-          :key="pedido.idpedido"
-          class="flex items-center justify-between gap-3 px-4 py-3"
-        >
-          <div class="min-w-0">
-            <p class="text-sm font-medium text-ink-900 truncate">{{ pedido.numpedido }}</p>
-            <p class="text-xs text-ink-400 truncate">{{ pedido.fantasia }}</p>
-          </div>
-          <div class="flex items-center gap-3 shrink-0">
-            <div class="text-right">
-              <p class="text-sm font-semibold tabular-nums text-ink-900">{{ formatReal(pedido.total) }}</p>
-              <p class="text-xs text-ink-400">{{ mudadata(pedido.data) }}</p>
+        <li v-for="pedido in ultimosPedidos" :key="pedido.idpedido" class="hover:bg-ink-200/50">
+          <RouterLink
+            :to="{ name: 'pedidos' }"
+            class="flex items-center justify-between gap-3 px-4 py-3"
+          >
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-ink-900 truncate">{{ pedido.numpedido }}</p>
+              <p class="text-xs text-ink-400 truncate">{{ pedido.fantasia }}</p>
             </div>
-            <StatusChip :status="pedido.status" />
-          </div>
+            <div class="flex items-center gap-3 shrink-0">
+              <div class="text-right">
+                <p class="text-sm font-semibold tabular-nums text-ink-900">{{ formatReal(pedido.total) }}</p>
+                <p class="text-xs text-ink-400">{{ mudadata(pedido.data) }}</p>
+              </div>
+              <StatusChip :status="pedido.status" />
+            </div>
+          </RouterLink>
         </li>
       </ul>
     </div>
