@@ -13,6 +13,7 @@ import { listarItens, incluirItem, gravarItem, excluirItem } from '../services/p
 import { aplicarDesconto, aplicarAcrescimo } from '../services/pedido/desconto'
 import { incluirParcela, excluirParcela, listarParcelas, validarFinanceiro } from '../services/pedido/financeiro'
 import { finalizar } from '../services/pedido/finalizar'
+import { imprimirPedido } from '../services/pedido/imprimir'
 import { emitirNfe, emitirBoleto } from '../services/sync/fiscal'
 import { pushClientes } from '../services/sync/clientes'
 import { pushPedidos } from '../services/sync/pedidos'
@@ -564,8 +565,17 @@ async function cancelarPedido() {
   }
 }
 
-function imprimir() {
-  alert('impressão em breve')
+async function imprimir() {
+  const n = store.cabecalho.numpedido
+  if (!n) {
+    alert('Salve o pedido antes de imprimir.')
+    return
+  }
+  try {
+    await imprimirPedido(n)
+  } catch (e) {
+    alert(msg(e))
+  }
 }
 
 async function finalizarPedido() {
