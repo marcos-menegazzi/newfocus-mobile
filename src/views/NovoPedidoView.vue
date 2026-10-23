@@ -14,6 +14,7 @@ import { aplicarDesconto, aplicarAcrescimo } from '../services/pedido/desconto'
 import { incluirParcela, excluirParcela, listarParcelas, validarFinanceiro } from '../services/pedido/financeiro'
 import { finalizar } from '../services/pedido/finalizar'
 import { imprimirPedido } from '../services/pedido/imprimir'
+import { termo, saldoSucata, saldosFinanceiro, type SaldoSucata, type SaldoFinanceiro } from '../services/pedido/termo'
 import { emitirNfe, emitirBoleto } from '../services/sync/fiscal'
 import { pushClientes } from '../services/sync/clientes'
 import { pushPedidos } from '../services/sync/pedidos'
@@ -664,6 +665,56 @@ async function boleto() {
   }
 }
 
+// --- Termo / saldos ---
+const showSucata = ref(false)
+const sucataRows = ref<SaldoSucata[]>([])
+const showSaldos = ref(false)
+const saldosRows = ref<SaldoFinanceiro[]>([])
+
+async function gerarTermo() {
+  const lancto = store.cabecalho.lancto
+  if (!lancto) {
+    alert('Pedido sem lançamento')
+    return
+  }
+  try {
+    await termo(lancto)
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+async function abrirSucata() {
+  const cli = store.cabecalho.clifor
+  const codlic = auth.usuario?.codlic
+  if (!cli || !codlic) {
+    alert('Selecione um Cliente.')
+    return
+  }
+  showSucata.value = true
+  sucataRows.value = []
+  try {
+    sucataRows.value = await saldoSucata(codlic, cli)
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
+async function abrirSaldos() {
+  const cli = store.cabecalho.clifor
+  if (!cli) {
+    alert('Selecione um Cliente.')
+    return
+  }
+  showSaldos.value = true
+  saldosRows.value = []
+  try {
+    saldosRows.value = await saldosFinanceiro(cli)
+  } catch (e) {
+    alert(msg(e))
+  }
+}
+
 async function reabrir() {
   try {
     await store.reabrir()
@@ -809,6 +860,10 @@ onMounted(async () => {
                 {{ cliente.fantasia || cliente.razao || 'Selecionar Cliente' }}
               </button>
             </label>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" class="rounded-xl bg-navy-800 text-white text-xs font-semibold py-2" @click="abrirSucata">Visualizar Sucata</button>
+              <button type="button" class="rounded-xl bg-navy-800 text-white text-xs font-semibold py-2" @click="abrirSaldos">Saldos Cliente</button>
+            </div>
             <div class="grid grid-cols-2 gap-3 text-xs">
               <div><span class="text-ink-400">Código:</span> {{ cliente.codigo || '—' }}</div>
               <div><span class="text-ink-400">CNPJ/CPF:</span> {{ cliente.cnpj || '—' }}</div>
@@ -1094,6 +1149,7 @@ onMounted(async () => {
         <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm" @click="nfe">NF-e</button>
       </div>
       <div class="grid grid-cols-4 gap-2 mt-2">
+        <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm" @click="gerarTermo">Termo</button>
         <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm" @click="boleto">Boleto</button>
         <button
           v-if="store.pedstatus === 'F'"
@@ -1247,6 +1303,63 @@ onMounted(async () => {
             <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-4 text-sm" @click="modal.open = false">Fechar</button>
           </div>
         </div>
+      </div>
+    </div>
+    <div
+      v-if="showSucata"
+      class="fixed inset-0 z-40 flex items-end justify-center bg-black/50"
+      @click.self="showSucata = false"
+    >
+      <div class="w-full max-h-[90vh] overflow-auto rounded-t-2xl bg-white p-5">
+        <h2 class="text-lg font-bold text-ink-900 mb-3">Saldo Sucata</h2>
+        <EmptyState v-if="sucataRows.length === 0" label="Nenhum saldo de sucata" />
+        <div v-else class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="text-ink-400 text-xs uppercase">
+              <tr>
+                <th class="py-2 pr-3">Referência</th>
+                <th class="py-2 pr-3 text-right">Saldo</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-ink-200">
+              <tr v-for="(r, i) in sucataRows" :key="i">
+                <td class="py-2 pr-3">{{ r.referencia }}</td>
+                <td class="py-2 pr-3 text-right">{{ formatReal(r.saldo) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <button class="w-full mt-4 py-2 text-sm font-semibold text-ink-600" @click="showSucata = false">Fechar</button>
+      </div>
+    </div>
+
+    <div
+      v-if="showSaldos"
+      class="fixed inset-0 z-40 flex items-end justify-center bg-black/50"
+      @click.self="showSaldos = false"
+    >
+      <div class="w-full max-h-[90vh] overflow-auto rounded-t-2xl bg-white p-5">
+        <h2 class="text-lg font-bold text-ink-900 mb-3">Saldos do Cliente</h2>
+        <EmptyState v-if="saldosRows.length === 0" label="Nenhum saldo" />
+        <div v-else class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="text-ink-400 text-xs uppercase">
+              <tr>
+                <th class="py-2 pr-3">Conta</th>
+                <th class="py-2 pr-3 text-right">Quantidade</th>
+                <th class="py-2 pr-3 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-ink-200">
+              <tr v-for="(r, i) in saldosRows" :key="i">
+                <td class="py-2 pr-3">{{ r.conta }}</td>
+                <td class="py-2 pr-3 text-right">{{ r.quan }}</td>
+                <td class="py-2 pr-3 text-right">{{ formatReal(r.total) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <button class="w-full mt-4 py-2 text-sm font-semibold text-ink-600" @click="showSaldos = false">Fechar</button>
       </div>
     </div>
   </AppShell>
