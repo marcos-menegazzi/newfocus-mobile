@@ -18,6 +18,7 @@ const routes = [
   { path: '/venda/:pedido', name: 'venda', component: () => import('../views/VendaView.vue') },
   { path: '/historico-vendas', name: 'historico-vendas', component: () => import('../views/HistoricoVendasView.vue') },
   { path: '/agenda', name: 'agenda', component: () => import('../views/AgendaView.vue') },
+  { path: '/metas', name: 'metas', component: () => import('../views/MetasView.vue') },
 ]
 
 const router = createRouter({
