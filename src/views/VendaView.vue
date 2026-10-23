@@ -16,6 +16,7 @@ interface ItemRow {
   vltotal: number
   condicao: string
   tabela: string
+  sequencia: number
 }
 
 const route = useRoute()
@@ -41,7 +42,7 @@ const fat = computed(() => route.query.faturamento === 'S')
 const itens = ref<ItemRow[]>([])
 
 onMounted(async () => {
-  const sql = `SELECT h.produto, h.descricao, h.quant, sum(h.vlunit) AS vlunit, sum(h.vldescto) AS vldescto, sum(h.vltotal) AS vltotal, v.condicao, h.tabela
+  const sql = `SELECT h.produto, h.descricao, h.quant, sum(h.vlunit) AS vlunit, sum(h.vldescto) AS vldescto, sum(h.vltotal) AS vltotal, v.condicao, h.tabela, h.sequencia AS sequencia
 FROM histvenda v, histitens h
 WHERE v.pedido = h.pedido AND v.lancto = h.lancto AND h.pedido = ?${fat.value ? " AND h.faturamento = 'S'" : ''}
 GROUP BY h.produto, h.sequencia ORDER BY h.produto`
@@ -85,7 +86,7 @@ GROUP BY h.produto, h.sequencia ORDER BY h.produto`
             </tr>
           </thead>
           <tbody class="divide-y divide-ink-200">
-            <tr v-for="i in itens" :key="i.produto + i.tabela">
+            <tr v-for="i in itens" :key="i.sequencia">
               <td class="py-2 px-3">{{ i.produto }}</td>
               <td class="py-2 px-3">{{ i.descricao }}</td>
               <td class="py-2 px-3 text-right">{{ i.quant }}</td>

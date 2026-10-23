@@ -8,7 +8,7 @@ import { query } from '../db/connection'
 import { call } from '../services/sync/context'
 import { childText, rowChildren } from '../services/sync/helpers'
 import { text } from '../services/soap'
-import { openPdf, pasta } from '../services/files'
+import { openPdf, pdfUrl } from '../services/files'
 import { useAuthStore } from '../stores/auth'
 
 const COLUMNS: Record<string, string> = {
@@ -88,7 +88,7 @@ async function extrato(c: ClienteRow) {
     return
   }
   const arquivo = text(doc, 'arquivo')
-  await openPdf(`https://${u.server}/${pasta()}/relatorio/li${u.codlic}/${arquivo}`)
+  await openPdf(pdfUrl(`relatorio/li${u.codlic}/${arquivo}`))
 }
 
 const garantias = ref(false)

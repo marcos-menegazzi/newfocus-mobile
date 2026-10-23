@@ -1,6 +1,6 @@
 import { call } from './context'
 import { childText, rowChildren } from './helpers'
-import { openPdf, pasta } from '../files'
+import { openPdf, pdfUrl } from '../files'
 import { useAuthStore } from '../../stores/auth'
 
 export interface TituloAberto {
@@ -29,5 +29,5 @@ export async function duplicata(lancto: string | number): Promise<void> {
   if (!u) throw new Error('sem usuário logado')
   const doc = await call(`P_DUPWEB01:EXEC(${lancto})`)
   const file = rowChildren(doc, 'retorno')[1]?.textContent ?? ''
-  await openPdf(`https://${u.server}/${pasta()}/duplicata/${file}`)
+  await openPdf(pdfUrl(`duplicata/${file}`))
 }

@@ -10,6 +10,12 @@ export function pasta(): string {
   return id
 }
 
+export function pdfUrl(rel: string): string {
+  const u = useAuthStore().usuario
+  const server = (u?.server ?? '').replace(/^https?:\/\//i, '')
+  return `https://${server}/${pasta()}/${rel}`
+}
+
 export async function openPdf(url: string): Promise<void> {
   const name = url.split('/').pop() ?? 'doc.pdf'
   if (Capacitor.isNativePlatform()) {

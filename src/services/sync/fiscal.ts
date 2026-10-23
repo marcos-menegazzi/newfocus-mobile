@@ -2,7 +2,7 @@ import { call } from './context'
 import { childText } from './helpers'
 import { run } from '../../db/connection'
 import { useAuthStore } from '../../stores/auth'
-import { openPdf, pasta } from '../files'
+import { openPdf, pdfUrl } from '../files'
 
 export async function emitirNfe(numpedido: string, lancto: string | number): Promise<void> {
   const u = useAuthStore().usuario
@@ -17,7 +17,7 @@ export async function emitirNfe(numpedido: string, lancto: string | number): Pro
   const statped = childText(retorno, 'statped')
   if (pedido === 'Erro') throw new Error(danfe)
   await run('UPDATE ped SET sefaz=?, file=?, status=? WHERE numpedido=?', [status, danfe, statped, numpedido])
-  await openPdf(`https://${u.server}/${pasta()}/danfe/li${u.codlic}/${danfe}`)
+  await openPdf(pdfUrl(`danfe/li${u.codlic}/${danfe}`))
 }
 
 export async function emitirBoleto(lancto: string | number): Promise<void> {
@@ -29,7 +29,7 @@ export async function emitirBoleto(lancto: string | number): Promise<void> {
   const boleto = childText(retorno, 'boleto')
   if (status !== 'OK') throw new Error('Não foi possível gerar o boleto')
   if (boleto === 'erro.pdf') throw new Error('Não foi possível gerar o boleto')
-  await openPdf(`https://${u.server}/${pasta()}/boleto/${boleto}`)
+  await openPdf(pdfUrl(`boleto/${boleto}`))
 }
 
 export async function reenviarPedido(numpedido: string): Promise<void> {

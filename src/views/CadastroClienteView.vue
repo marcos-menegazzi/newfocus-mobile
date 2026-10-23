@@ -5,6 +5,7 @@ import AppShell from '../components/AppShell.vue'
 import ScreenHeader from '../components/ScreenHeader.vue'
 import { query, run } from '../db/connection'
 import { useAuthStore } from '../stores/auth'
+import { removechar } from '../services/sync/helpers'
 import estadosCidades from '../assets/estados_cidades.json'
 
 interface Estado {
@@ -65,7 +66,7 @@ const lookupLoading = ref(false)
 const lookupMsg = ref('')
 
 const FIELDS = [
-  'fantasia', 'bairro', 'cep', 'cidade', 'cj', 'contato', 'ddd', 'email',
+  'fantasia', 'bairro', 'cep', 'cj', 'contato', 'ddd', 'email',
   'endereco', 'estado', 'fax', 'inscricao', 'numero', 'razao', 'tel1',
   'cnpj', 'emailnfe', 'simples', 'tippess', 'final', 'regiao',
 ] as const
@@ -83,6 +84,7 @@ onMounted(async () => {
     if (v != null) form[k] = String(v)
   }
   form.obs = row.obs == null ? '' : String(row.obs)
+  form.cidade = removechar(String(row.cidade ?? '')).toUpperCase()
 })
 
 function validaCPF(cpf: string): boolean {
@@ -143,7 +145,7 @@ async function buscarCnpj() {
     form.bairro = r.bairro || ''
     form.cep = r.cep || ''
     form.estado = r.uf || ''
-    form.cidade = (r.municipio || '').toUpperCase()
+    form.cidade = removechar(String(r.municipio ?? '')).toUpperCase()
     const tel = (r.telefone || '').replace(/\D/g, '')
     form.ddd = tel.slice(0, 2)
     form.tel1 = tel.slice(2)
@@ -184,7 +186,7 @@ async function salvar() {
 
   if (isEdit.value) {
     await run(
-      `UPDATE clifor SET fantasia=?, bairro=?, cep=?, cidade=?, cj=?, contato=?, ddd=?, email=?, endereco=?, estado=?, fax=?, inscricao=?, numero=?, razao=?, tel1=?, emailnfe=?, simples=?, tippess=?, obs=?, enviado='N', cnpj=?, final=?, regiao=? WHERE clifor = ?`,
+      `UPDATE clifor SET fantasia=?, bairro=?, cep=?, cidade=?, cj=?, contato=?, ddd=?, email=?, endereco=?, estado=?, fax=?, inscricao=?, numero=?, razao=?, tel1=?, cnpj=?, emailnfe=?, simples=?, tippess=?, obs=?, enviado='N', final=?, regiao=? WHERE clifor = ?`,
       [f.fantasia, ...params, f.final, f.regiao, idcliente.value],
     )
     alert('Cliente atualizado')
