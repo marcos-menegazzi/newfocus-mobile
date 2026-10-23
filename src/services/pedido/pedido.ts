@@ -107,11 +107,11 @@ export async function duplicarPedido(origem: string): Promise<string> {
   const itens = await query<any>('SELECT * FROM mped WHERE numpedido = ?', [origem])
   for (const i of itens) {
     await run(
-      `INSERT INTO mped(numpedido, codproduto, qtd, vlunit, descto, vltotal, desctorat, descinc, vlunbase, vlbruto, operacao, condicao, comissao, descper, tabela, valor_negocia, peso_item)
+      `INSERT INTO mped(numpedido, codproduto, qtd, vlunit, descto, vltotal, descinc, vlunbase, vlbruto, operacao, condicao, descper, comissao, tabela, fator, unidade, flex)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [numpedido, i.codproduto, i.qtd, i.vlunit, i.descto, i.vltotal, i.desctorat, i.descinc,
-        i.vlunbase, i.vlbruto, i.operacao, i.condicao, i.comissao, i.descper, i.tabela,
-        i.valor_negocia, i.peso_item],
+      [numpedido, i.codproduto, i.qtd, i.vlunit, i.descto, i.vltotal, i.descinc,
+        i.vlunbase, i.vlbruto, i.operacao, i.condicao, i.descper, i.comissao, i.tabela,
+        i.fator, i.unidade, i.flex],
     )
   }
   return numpedido
