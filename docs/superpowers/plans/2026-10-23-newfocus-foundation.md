@@ -59,7 +59,7 @@ npm install -D @capacitor/cli @capacitor/android @capacitor/ios tailwindcss @tai
 Add to the `"scripts"` object (keep existing `dev`/`build`/`preview`):
 
 ```json
-"type-check": "vue-tsc --noEmit",
+"type-check": "vue-tsc -b",
 "test": "vitest run",
 "test:watch": "vitest"
 ```
