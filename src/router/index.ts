@@ -5,6 +5,13 @@ const routes = [
   { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
   { path: '/', name: 'home', component: () => import('../views/HomeView.vue') },
   { path: '/config', name: 'config', component: () => import('../views/ConfigView.vue') },
+  { path: '/clientes', name: 'clientes', component: () => import('../views/ConsultaClientesView.vue') },
+  { path: '/clientes/:idcliente', name: 'cliente-edit', component: () => import('../views/CadastroClienteView.vue') },
+  { path: '/produtos', name: 'produtos', component: () => import('../views/ConsultaProdutosView.vue') },
+  { path: '/pedidos', name: 'pedidos', component: () => import('../views/ConsultaPedidosView.vue') },
+  { path: '/titulos/:idcliente', name: 'titulos', component: () => import('../views/ConsultaTitulosView.vue') },
+  { path: '/titulo/:numero', name: 'titulo', component: () => import('../views/TituloView.vue') },
+  { path: '/venda/:pedido', name: 'venda', component: () => import('../views/VendaView.vue') },
 ]
 
 const router = createRouter({
