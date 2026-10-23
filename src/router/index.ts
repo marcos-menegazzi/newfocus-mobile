@@ -17,6 +17,7 @@ const routes = [
   { path: '/titulo/:numero', name: 'titulo', component: () => import('../views/TituloView.vue') },
   { path: '/venda/:pedido', name: 'venda', component: () => import('../views/VendaView.vue') },
   { path: '/historico-vendas', name: 'historico-vendas', component: () => import('../views/HistoricoVendasView.vue') },
+  { path: '/agenda', name: 'agenda', component: () => import('../views/AgendaView.vue') },
 ]
 
 const router = createRouter({
