@@ -109,12 +109,13 @@ body {
 
   .icon-btn {
     @apply inline-flex items-center justify-center h-10 w-10 shrink-0 rounded-full text-ink-700 transition active:bg-ink-100;
+    @apply disabled:opacity-35 disabled:pointer-events-none;
   }
 
   .page { @apply px-4 pt-4 pb-10 space-y-4; }
   .panel { @apply bg-surface rounded-2xl border border-ink-200/80; }
   .list { @apply bg-surface rounded-2xl border border-ink-200/80 divide-y divide-ink-100 overflow-hidden; }
-  .list-row { @apply block w-full text-left px-4 py-3.5 active:bg-ink-50 transition-colors; }
+  .list-row { @apply block w-full text-left px-4 py-3.5 active:bg-ink-50 transition-colors disabled:pointer-events-none; }
 
   .section-title { @apply text-[15px] font-semibold text-ink-900; }
   .meta { @apply text-[13px] text-ink-500; }

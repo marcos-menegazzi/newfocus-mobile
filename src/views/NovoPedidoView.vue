@@ -19,7 +19,12 @@ import { incluirParcela, excluirParcela, listarParcelas, validarFinanceiro } fro
 import { finalizar } from '../services/pedido/finalizar'
 import { imprimirPedido } from '../services/pedido/imprimir'
 import { termo, saldoSucata, saldosFinanceiro, type SaldoSucata, type SaldoFinanceiro } from '../services/pedido/termo'
+import {
+  danfeEmitida, motivoBoleto, motivoCancelar, motivoDuplicar, motivoFinalizar,
+  motivoImprimir, motivoNfe, motivoReabrir, motivoTransformar, type PedidoSituacao,
+} from '../services/pedido/acoes'
 import { emitirNfe, emitirBoleto } from '../services/sync/fiscal'
+import { openPdf, pdfUrl } from '../services/files'
 import { pushClientes } from '../services/sync/clientes'
 import { pushPedidos } from '../services/sync/pedidos'
 import { useAuthStore } from '../stores/auth'
@@ -744,14 +749,18 @@ async function finalizarPedido() {
   }
 }
 
+// NF-e só existe para pedido sincronizado, que não pode mais ser gravado: emite
+// direto e recarrega o pedido para refletir sefaz/arquivo/status devolvidos.
 async function nfe() {
-  if (!store.cabecalho.numpedido) {
-    notify('Salve o pedido antes de emitir a NF-e.')
-    return
-  }
+  const n = store.cabecalho.numpedido
   try {
-    await store.salvar()
-    await emitirNfe(store.cabecalho.numpedido, store.cabecalho.lancto ?? 0)
+    if (danfeEmitida(situacao.value)) {
+      const u = auth.usuario
+      if (u) await openPdf(pdfUrl(`danfe/li${u.codlic}/${store.cabecalho.file}`))
+      return
+    }
+    await emitirNfe(n, store.cabecalho.lancto ?? 0)
+    await store.carregar(n)
   } catch (e) {
     notify(msg(e), 'error')
   }
@@ -769,6 +778,30 @@ function acao(fn: () => unknown) {
   showAcoes.value = false
   fn()
 }
+
+// Ações que não se aplicam à situação do pedido aparecem desabilitadas, com o motivo.
+const situacao = computed<PedidoSituacao>(() => ({
+  status: store.pedstatus,
+  itens: itens.value.length,
+  tipo: store.cabecalho.tipo,
+  lancto: store.cabecalho.lancto,
+  sefaz: store.cabecalho.sefaz,
+  file: store.cabecalho.file,
+}))
+const motivoFinal = computed(() => motivoFinalizar(situacao.value))
+const motivoImpressao = computed(() => motivoImprimir(situacao.value))
+const acoes = computed(() => {
+  const s = situacao.value
+  return [
+    { label: danfeEmitida(s) ? 'Ver DANFE' : 'Emitir NF-e', icon: 'file', fn: nfe, motivo: motivoNfe(s) },
+    { label: 'Gerar boleto', icon: 'barcode', fn: boleto, motivo: motivoBoleto(s) },
+    { label: 'Gerar termo', icon: 'receipt', fn: gerarTermo, motivo: motivoBoleto(s) },
+    { label: 'Reabrir pedido', icon: 'undo', fn: reabrir, motivo: motivoReabrir(s) },
+    ...(s.tipo === 'O' ? [{ label: 'Transformar orçamento em pedido', icon: 'orders', fn: transformar, motivo: motivoTransformar(s) }] : []),
+    { label: 'Duplicar pedido', icon: 'copy', fn: duplicar, motivo: motivoDuplicar(s) },
+    { label: 'Cancelar pedido', icon: 'ban', fn: cancelarPedido, motivo: motivoCancelar(s), danger: true },
+  ]
+})
 
 // --- Termo / saldos ---
 const showSucata = ref(false)
@@ -1093,10 +1126,10 @@ watch(
                   <span class="sr-only">Unidade</span>
                   <input v-model="p.unidade" type="text" class="input min-h-10 py-1.5 text-center" placeholder="Un." />
                 </label>
-                <button class="btn btn-primary btn-sm min-h-10 flex-1" @click="quickAdd(p)">
+                <button class="btn btn-primary btn-sm min-h-10 flex-1" :disabled="!aberto" @click="quickAdd(p)">
                   <Icon name="plus" :size="16" /> Adicionar
                 </button>
-                <button class="icon-btn border border-ink-200" aria-label="Ajustar preço e desconto" @click="abrirModalProduto(p)">
+                <button class="icon-btn border border-ink-200" aria-label="Ajustar preço e desconto" :disabled="!aberto" @click="abrirModalProduto(p)">
                   <Icon name="edit" :size="18" />
                 </button>
               </div>
@@ -1120,10 +1153,10 @@ watch(
               </div>
               <p class="text-[15px] font-semibold tabular-nums shrink-0 pt-px">R$ {{ formatReal(i.vltotal) }}</p>
               <div class="flex shrink-0 -mt-1">
-                <button class="icon-btn" :aria-label="`Editar ${i.descricao}`" @click="abrirModalItem(i)">
+                <button class="icon-btn" :aria-label="`Editar ${i.descricao}`" :disabled="!aberto" @click="abrirModalItem(i)">
                   <Icon name="edit" :size="18" />
                 </button>
-                <button class="icon-btn text-danger-600" :aria-label="`Excluir ${i.descricao}`" @click="removerItem(i)">
+                <button class="icon-btn text-danger-600" :aria-label="`Excluir ${i.descricao}`" :disabled="!aberto" @click="removerItem(i)">
                   <Icon name="trash" :size="18" />
                 </button>
               </div>
@@ -1152,7 +1185,7 @@ watch(
                 <p class="meta truncate">{{ pa.condesc || pa.condicao }}{{ pa.autorizacao ? `, autorização ${pa.autorizacao}` : '' }}</p>
               </div>
               <span class="text-[15px] font-semibold tabular-nums">R$ {{ formatReal(pa.valor) }}</span>
-              <button class="icon-btn text-danger-600" aria-label="Excluir parcela" @click="removerParcela(pa.idfinanceiro)">
+              <button class="icon-btn text-danger-600" aria-label="Excluir parcela" :disabled="!aberto" @click="removerParcela(pa.idfinanceiro)">
                 <Icon name="trash" :size="18" />
               </button>
             </li>
@@ -1175,7 +1208,7 @@ watch(
               <input v-model="fin.autorizacao" type="text" class="input" />
             </label>
           </div>
-          <button class="btn btn-tonal w-full" @click="gravarParcela">
+          <button class="btn btn-tonal w-full" :disabled="!aberto" @click="gravarParcela">
             <Icon name="plus" :size="18" /> Adicionar parcela
           </button>
         </section>
@@ -1337,41 +1370,37 @@ watch(
           <button class="btn btn-primary flex-1" @click="goTo(step + 1)">{{ STEPS[step].next }}</button>
         </div>
       </div>
-      <div v-else class="flex gap-2">
-        <button class="btn btn-secondary px-3.5" aria-label="Mais ações" @click="showAcoes = true">
-          <Icon name="more" :size="22" />
-        </button>
-        <button class="btn btn-secondary" @click="imprimir">
-          <Icon name="printer" /> Imprimir
-        </button>
-        <button class="btn btn-primary flex-1" :disabled="!aberto" @click="finalizarPedido">
-          <Icon name="check" /> Finalizar
-        </button>
+      <div v-else class="space-y-2.5">
+        <p v-if="aberto && motivoFinal" class="meta text-center">{{ motivoFinal }}</p>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary px-3.5" aria-label="Mais ações" @click="showAcoes = true">
+            <Icon name="more" :size="22" />
+          </button>
+          <button class="btn btn-secondary" :disabled="!!motivoImpressao" @click="imprimir">
+            <Icon name="printer" /> Imprimir
+          </button>
+          <button class="btn btn-primary flex-1" :disabled="!!motivoFinal" @click="finalizarPedido">
+            <Icon name="check" /> Finalizar
+          </button>
+        </div>
       </div>
     </template>
 
     <Sheet :open="showAcoes" title="Ações do pedido" :subtitle="titulo" @close="showAcoes = false">
       <ul class="-mx-5 divide-y divide-ink-100">
-        <li>
-          <button class="list-row px-5 flex items-center gap-3" @click="acao(nfe)"><Icon name="file" class="text-ink-500" /> Emitir NF-e</button>
-        </li>
-        <li>
-          <button class="list-row px-5 flex items-center gap-3" @click="acao(boleto)"><Icon name="barcode" class="text-ink-500" /> Gerar boleto</button>
-        </li>
-        <li>
-          <button class="list-row px-5 flex items-center gap-3" @click="acao(gerarTermo)"><Icon name="receipt" class="text-ink-500" /> Gerar termo</button>
-        </li>
-        <li v-if="store.pedstatus === 'F'">
-          <button class="list-row px-5 flex items-center gap-3" @click="acao(reabrir)"><Icon name="undo" class="text-ink-500" /> Reabrir pedido</button>
-        </li>
-        <li v-if="store.cabecalho.tipo === 'O'">
-          <button class="list-row px-5 flex items-center gap-3" @click="acao(transformar)"><Icon name="orders" class="text-ink-500" /> Transformar orçamento em pedido</button>
-        </li>
-        <li v-if="isEdit">
-          <button class="list-row px-5 flex items-center gap-3" @click="acao(duplicar)"><Icon name="copy" class="text-ink-500" /> Duplicar pedido</button>
-        </li>
-        <li>
-          <button class="list-row px-5 flex items-center gap-3 text-danger-700" @click="acao(cancelarPedido)"><Icon name="ban" /> Cancelar pedido</button>
+        <li v-for="a in acoes" :key="a.icon">
+          <button
+            class="list-row px-5 flex items-center gap-3"
+            :class="a.motivo ? 'text-ink-400' : a.danger ? 'text-danger-700' : ''"
+            :disabled="!!a.motivo"
+            @click="acao(a.fn)"
+          >
+            <Icon :name="a.icon" :class="a.motivo ? 'text-ink-300' : a.danger ? '' : 'text-ink-500'" />
+            <span class="min-w-0">
+              <span class="block">{{ a.label }}</span>
+              <span v-if="a.motivo" class="block text-[13px] text-ink-500">{{ a.motivo }}</span>
+            </span>
+          </button>
         </li>
       </ul>
     </Sheet>
@@ -1464,7 +1493,7 @@ watch(
         </dl>
       </div>
       <template #footer>
-        <button class="btn btn-primary w-full" @click="gravarModal">Salvar item</button>
+        <button class="btn btn-primary w-full" :disabled="!aberto" @click="gravarModal">Salvar item</button>
       </template>
     </Sheet>
 

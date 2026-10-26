@@ -13,6 +13,7 @@ import Sheet from '../components/Sheet.vue'
 import StatusChip from '../components/StatusChip.vue'
 import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
+import { danfeEmitida, motivoBoleto, motivoNfe } from '../services/pedido/acoes'
 import { emitirNfe, emitirBoleto, reenviarPedido } from '../services/sync/fiscal'
 import { openPdf, pasta } from '../services/files'
 import { useAuthStore } from '../stores/auth'
@@ -124,7 +125,7 @@ function abrirPedido(p: PedidoRow) {
 
 async function nfe(p: PedidoRow) {
   try {
-    if (p.sefaz === '100' && (p.status === 'S' || p.status === 'Z')) {
+    if (danfeEmitida(p)) {
       const u = auth.usuario
       if (!u || !p.file) return
       await openPdf(`https://${u.server}/${pasta()}/danfe/li${u.codlic}/${p.file}`)
@@ -193,11 +194,11 @@ async function reenviar(p: PedidoRow) {
               <StatusChip :status="p.status" :itens="p.itens" />
             </div>
           </button>
-          <div v-if="p.status !== 'A' || p.itens > 0" class="flex gap-2 mt-3">
-            <button class="btn btn-tonal btn-sm" @click="nfe(p)">
-              <Icon name="file" :size="16" /> NF-e
+          <div v-if="p.status !== 'C' && p.itens > 0" class="flex gap-2 mt-3">
+            <button class="btn btn-tonal btn-sm" :disabled="!!motivoNfe(p)" :title="motivoNfe(p) ?? undefined" @click="nfe(p)">
+              <Icon name="file" :size="16" /> {{ danfeEmitida(p) ? 'DANFE' : 'NF-e' }}
             </button>
-            <button class="btn btn-tonal btn-sm" @click="boleto(p)">
+            <button class="btn btn-tonal btn-sm" :disabled="!!motivoBoleto(p)" :title="motivoBoleto(p) ?? undefined" @click="boleto(p)">
               <Icon name="barcode" :size="16" /> Boleto
             </button>
             <button v-if="p.status === 'V'" class="btn btn-tonal btn-sm" @click="reenviar(p)">
