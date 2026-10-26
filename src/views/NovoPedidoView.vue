@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
-import ScreenHeader from '../components/ScreenHeader.vue'
+import Icon from '../components/Icon.vue'
+import SelectField from '../components/SelectField.vue'
+import SearchField from '../components/SearchField.vue'
+import Segmented from '../components/Segmented.vue'
+import Sheet from '../components/Sheet.vue'
 import StatusChip from '../components/StatusChip.vue'
 import { query } from '../db/connection'
-import { formatReal } from '../lib/format'
+import { formatReal, mudadata } from '../lib/format'
 import { getfator, isCondAvista } from '../services/pedido/calc'
 import { calcPreco } from '../services/pedido/preco'
 import { listarItens, incluirItem, gravarItem, excluirItem } from '../services/pedido/itens'
@@ -21,22 +25,27 @@ import { pushPedidos } from '../services/sync/pedidos'
 import { useAuthStore } from '../stores/auth'
 import { usePedidoStore } from '../stores/pedido'
 import { useToast } from '../composables/useToast'
+import { useConfirm } from '../composables/useConfirm'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const store = usePedidoStore()
 const { notify } = useToast()
+const { confirmar } = useConfirm()
 
-const TABS = [
-  { key: 'pedido', label: 'Pedido' },
-  { key: 'incluir', label: 'Incluir' },
-  { key: 'itens', label: 'Itens' },
-  { key: 'desconto', label: 'Desconto' },
-  { key: 'financeiro', label: 'Financeiro' },
-  { key: 'negociacao', label: 'Negociação' },
+const STEPS = [
+  { label: 'Cliente', next: 'Continuar para produtos' },
+  { label: 'Produtos', next: 'Continuar para pagamento' },
+  { label: 'Pagamento', next: 'Revisar pedido' },
+  { label: 'Revisão', next: '' },
 ]
-const tab = ref('pedido')
+const step = ref(0)
+const prodView = ref<'buscar' | 'pedido'>('buscar')
+const showAcoes = ref(false)
+const STATUS_LABEL: Record<string, string> = {
+  A: 'aberto', F: 'finalizado', V: 'aguardando confirmação', S: 'sincronizado', Z: 'faturado', C: 'cancelado',
+}
 
 const empresas = ref<any[]>([])
 const vendedores = ref<any[]>([])
@@ -88,11 +97,89 @@ const showCarga = ref(false)
 
 const cargaLabel = computed(() => {
   const c = cargas.value.find((x) => String(x.codigo) === String(store.cabecalho.carga))
-  return c ? c.descricao : (store.cabecalho.cargadesc || 'Selecionar Carga')
+  return c ? c.descricao : (store.cabecalho.cargadesc || 'Selecionar carga')
 })
-const operacaoLabel = computed(() => store.cabecalho.operacao || 'Selecionar Operação')
+const operacaoLabel = computed(() => store.cabecalho.operacao || 'Selecionar operação')
 
 const isEdit = computed(() => !!store.cabecalho.numpedido)
+const titulo = computed(() => (store.cabecalho.numpedido ? `Pedido ${store.cabecalho.numpedido}` : 'Novo pedido'))
+const aberto = computed(() => !store.cabecalho.numpedido || store.pedstatus === 'A')
+
+const finObrigatorio = computed(() => auth.usuario?.finped === 'S')
+const headerOk = computed(() => validarCabecalho() === null)
+const pagamentoOk = computed(() => remaining.value <= 0.005)
+
+const nome = (list: any[], key: string, val: unknown, field: string) =>
+  list.find((x) => String(x[key]) === String(val))?.[field] ?? ''
+const empresaNome = computed(() => nome(empresas.value, 'empresa', store.cabecalho.empresa, 'fantasia'))
+const vendedorNome = computed(() => nome(vendedores.value, 'codigo', store.cabecalho.vendedor, 'nome'))
+const condicaoNome = computed(() => nome(condicoes.value, 'codigo', store.cabecalho.condpag, 'descr'))
+const tabelaNome = computed(() => nome(tabelas.value, 'codigo', store.cabecalho.tabela, 'descricao'))
+const comissaoNome = computed(() => nome(comissoes.value, 'codigo', store.cabecalho.comissao, 'descricao'))
+const tipoLabel = computed(() => ({ S: 'Saída', E: 'Entrada', O: 'Orçamento' } as Record<string, string>)[store.cabecalho.tipo] ?? '')
+const condicoesResumo = computed(() =>
+  [empresaNome.value, store.cabecalho.operacao, condicaoNome.value, tabelaNome.value && `tabela ${tabelaNome.value}`, cargaLabel.value !== 'Selecionar carga' && `carga ${cargaLabel.value}`]
+    .filter(Boolean)
+    .join(', '),
+)
+
+// Motivo que impede abrir a etapa i (null = pode abrir).
+function bloqueio(i: number): string | null {
+  if (i >= 1 && !headerOk.value) return validarCabecalho()
+  if (i >= 2 && itens.value.length === 0) return 'Adicione ao menos um produto ao pedido.'
+  return null
+}
+
+async function goTo(i: number) {
+  if (i === step.value || i < 0 || i >= STEPS.length) return
+  const err = i > step.value ? bloqueio(i) : null
+  if (err) {
+    notify(err)
+    return
+  }
+  try {
+    // Ao sair do cabeçalho o pedido já é gravado (rascunho, sem itens): se o app
+    // fechar, o vendedor retoma pela lista de pedidos em vez de recomeçar.
+    if (i >= 1 && !store.cabecalho.numpedido) await store.salvar()
+    else await persistTotal()
+  } catch (e) {
+    notify(msg(e), 'error')
+    return
+  }
+  step.value = i
+  window.scrollTo({ top: 0 })
+}
+
+// Assim que o pedido novo ganha número, a URL passa a apontar para ele
+// (recarregar ou voltar não inicia outro pedido).
+watch(
+  () => store.cabecalho.numpedido,
+  (n) => {
+    if (n && route.name === 'pedido-novo') router.replace({ name: 'pedido-edit', params: { numpedido: n } })
+  },
+)
+
+async function salvarCampo() {
+  try {
+    await persistTotal()
+  } catch (e) {
+    notify(msg(e), 'error')
+  }
+}
+
+const PROD_OPTIONS = [
+  { value: 'descricao', label: 'Descrição' },
+  { value: 'descred', label: 'Reduzida' },
+  { value: 'codigo', label: 'Código' },
+]
+const CLIENT_OPTIONS = [
+  { value: 'fantasia', label: 'Nome fantasia' },
+  { value: 'razao', label: 'Razão social' },
+  { value: 'codigo', label: 'Código' },
+  { value: 'cnpj', label: 'CNPJ/CPF' },
+  { value: 'cidade', label: 'Cidade' },
+  { value: 'estado', label: 'Estado (UF)' },
+]
 
 function today(): string {
   const d = new Date()
@@ -313,6 +400,7 @@ async function quickAdd(p: any) {
     })
     await refreshItens()
     await persistTotal()
+    notify(`${p.descvis || p.descricao} adicionado`, 'success')
   } catch (e) {
     notify(msg(e), 'error')
   }
@@ -421,6 +509,7 @@ async function gravarModal() {
     modal.open = false
     await refreshItens()
     await persistTotal()
+    notify('Item salvo', 'success')
   } catch (e) {
     notify(msg(e), 'error')
   }
@@ -434,7 +523,8 @@ function descontoLabel(row: any): string {
 }
 
 async function removerItem(row: any) {
-  if (!confirm('Excluir este item?')) return
+  const ok = await confirmar({ title: 'Excluir este item?', message: `Produto ${row.codproduto} sai do pedido.`, confirmLabel: 'Excluir', danger: true })
+  if (!ok) return
   await excluirItem(store.cabecalho.numpedido, row.codproduto, row.tabela)
   await refreshItens()
   await persistTotal()
@@ -560,6 +650,14 @@ async function cancelarPedido() {
     notify('Salve o pedido antes de cancelar.')
     return
   }
+  const ok = await confirmar({
+    title: `Cancelar o pedido ${store.cabecalho.numpedido}?`,
+    message: 'Essa ação não pode ser desfeita.',
+    confirmLabel: 'Cancelar pedido',
+    cancelLabel: 'Voltar',
+    danger: true,
+  })
+  if (!ok) return
   try {
     await store.cancelar()
     notify('Pedido cancelado.')
@@ -640,7 +738,7 @@ async function finalizarPedido() {
       await pushPedidos()
     }
     await refreshItens()
-    notify('Pedido Finalizado.')
+    notify('Pedido finalizado', 'success')
   } catch (e) {
     notify(msg(e), 'error')
   }
@@ -665,6 +763,11 @@ async function boleto() {
   } catch (e) {
     notify(msg(e), 'error')
   }
+}
+
+function acao(fn: () => unknown) {
+  showAcoes.value = false
+  fn()
 }
 
 // --- Termo / saldos ---
@@ -738,7 +841,11 @@ async function transformar() {
 async function duplicar() {
   try {
     await store.duplicar()
-    router.push(`/pedidos/${store.cabecalho.numpedido}`)
+    await router.push(`/pedidos/${store.cabecalho.numpedido}`)
+    await refreshItens()
+    await refreshParcelas()
+    step.value = 3
+    notify(`Pedido duplicado como ${store.cabecalho.numpedido}`, 'success')
   } catch (e) {
     notify(msg(e), 'error')
   }
@@ -757,11 +864,22 @@ onMounted(async () => {
     ])
 
   await store.carregarPrecos()
+  await carregarRota()
+})
 
+function rotaNumpedido(): string {
   const p = route.params.numpedido
-  const n = Array.isArray(p) ? p[0] : p
+  return String((Array.isArray(p) ? p[0] : p) ?? '')
+}
+
+async function carregarRota() {
+  const n = rotaNumpedido()
+  Object.assign(cliente, { id: 0, codigo: 0, fantasia: '', razao: '', cnpj: '', limcred: 0, credito: 0, saldo: 0 })
+  produtos.value = []
+  prodSearched.value = false
+  prodView.value = 'buscar'
   if (n) {
-    await store.carregar(String(n))
+    await store.carregar(n)
     await carregarCliente()
   } else {
     await store.novo()
@@ -771,598 +889,621 @@ onMounted(async () => {
   preloadNegociacao()
   await refreshItens()
   await refreshParcelas()
-})
+  // Pedido existente abre na revisão; dali cada etapa é editável.
+  // Rascunho (aberto e sem itens) volta direto para a inclusão de produtos.
+  if (!n) step.value = 0
+  else step.value = store.pedstatus === 'A' && itens.value.length === 0 ? 1 : 3
+}
+
+// A mesma tela é reaproveitada entre pedidos: recarrega quando a rota aponta
+// para outro pedido (não quando é o próprio pedido recém-criado ou duplicado).
+watch(
+  () => route.params.numpedido,
+  () => {
+    if (route.name !== 'pedido-edit' && route.name !== 'pedido-novo') return
+    const n = rotaNumpedido()
+    if (n !== String(store.cabecalho.numpedido ?? '')) carregarRota()
+  },
+)
 </script>
 
 <template>
-  <AppShell>
-    <div class="p-6 pb-0">
-      <ScreenHeader title="Novo Pedido" />
+  <AppShell :title="titulo" :subtitle="cliente.fantasia || cliente.razao || undefined" back>
+    <template #actions>
+      <StatusChip v-if="store.cabecalho.numpedido" :status="store.pedstatus" :itens="itens.length" />
+      <button v-if="store.cabecalho.numpedido" class="icon-btn" aria-label="Mais ações" @click="showAcoes = true">
+        <Icon name="more" :size="22" />
+      </button>
+    </template>
 
-      <section class="bg-white rounded-card shadow-card p-4 mb-4 grid grid-cols-2 gap-3">
-        <div class="flex items-center justify-between gap-2">
-          <div>
-            <p class="text-ink-400 text-xs">Nº Pedido</p>
-            <p class="text-ink-900 font-bold">{{ store.cabecalho.numpedido || 'Novo' }}</p>
-          </div>
-          <StatusChip v-if="store.cabecalho.numpedido" :status="store.pedstatus" />
-        </div>
-        <div>
-          <p class="text-ink-400 text-xs">Total</p>
-          <p class="text-ink-900 font-bold">{{ formatReal(total) }}</p>
-        </div>
-        <div>
-          <p class="text-ink-400 text-xs">Quantidade</p>
-          <p class="text-ink-900 font-bold">{{ quantidade }}</p>
-        </div>
-        <div>
-          <p class="text-ink-400 text-xs">Saldo Flex</p>
-          <p class="text-ink-900 font-bold">{{ formatReal(saldoFlex) }}</p>
-        </div>
-        <div class="col-span-2">
-          <p class="text-ink-400 text-xs">Flex do Pedido</p>
-          <p class="text-ink-900 font-bold">{{ formatReal(flexPedido) }}</p>
-        </div>
-      </section>
+    <nav
+      class="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-10 bg-mist/95 backdrop-blur-md border-b border-ink-200 px-4 pt-2 pb-3"
+      aria-label="Etapas do pedido"
+    >
+      <ol class="grid grid-cols-4 gap-1.5">
+        <li v-for="(s, i) in STEPS" :key="s.label">
+          <button
+            type="button"
+            class="w-full text-left pt-1 pb-0.5 disabled:cursor-not-allowed"
+            :aria-current="step === i ? 'step' : undefined"
+            :disabled="i > step && !!bloqueio(i)"
+            @click="goTo(i)"
+          >
+            <span class="block h-1 rounded-full" :class="i <= step ? 'bg-brand-600' : 'bg-ink-200'" />
+            <span
+              class="mt-1.5 flex items-center gap-1 text-xs whitespace-nowrap"
+              :class="step === i ? 'font-semibold text-brand-700' : i < step ? 'text-ink-700' : 'text-ink-500'"
+            >
+              <Icon v-if="i < step" name="check" :size="13" :stroke="2.6" class="text-brand-600" />
+              <template v-else>{{ i + 1 }}.</template>
+              {{ s.label }}
+            </span>
+          </button>
+        </li>
+      </ol>
+    </nav>
 
-      <div class="flex gap-2 mb-4 overflow-x-auto -mx-6 px-6">
-        <button
-          v-for="t in TABS"
-          :key="t.key"
-          class="shrink-0 rounded-full px-4 py-2 text-sm font-semibold"
-          :class="tab === t.key ? 'bg-accent-500 text-navy-950' : 'bg-navy-800 text-ink-200'"
-          @click="tab = t.key"
-        >{{ t.label }}</button>
-      </div>
+    <div class="page">
+      <p
+        v-if="store.cabecalho.numpedido && store.pedstatus !== 'A'"
+        class="flex items-start gap-2 rounded-xl bg-info-100 text-info-800 px-3.5 py-3 text-sm"
+      >
+        <Icon name="info" class="mt-px" />
+        <span>
+          Este pedido está {{ STATUS_LABEL[store.pedstatus] ?? store.pedstatus }}.
+          <template v-if="store.pedstatus === 'F'">Para alterar itens e valores, use Reabrir em Mais ações.</template>
+        </span>
+      </p>
 
-      <div v-if="tab === 'pedido'" class="space-y-4">
-        <section class="bg-white rounded-card shadow-card p-5">
-          <h2 class="text-sm font-bold text-ink-900 mb-3">Pedido</h2>
-          <div class="grid grid-cols-1 gap-3">
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Tipo</span>
-              <select v-model="store.cabecalho.tipo" class="input">
-                <option value="S">Saída</option>
-                <option value="E">Entrada</option>
-                <option value="O">Orçamento</option>
-              </select>
-            </label>
-            <div class="grid grid-cols-2 gap-3">
-              <label class="block">
-                <span class="text-ink-600 text-xs font-medium">Nº Pedido</span>
-                <input v-model="store.cabecalho.numpedido" type="text" class="input" disabled />
-              </label>
-              <label class="block">
-                <span class="text-ink-600 text-xs font-medium">Nº Nota</span>
-                <input v-model="store.cabecalho.numero" type="text" class="input" />
-              </label>
+      <!-- 1. Cliente e condições -->
+      <template v-if="step === 0">
+        <div>
+          <h2 class="text-[22px] font-semibold tracking-tight">Para quem é o pedido?</h2>
+          <p class="meta mt-1">{{ isEdit ? 'Confira os dados do pedido.' : 'As condições vêm preenchidas com as do último pedido. Confira antes de continuar.' }}</p>
+        </div>
+
+        <section class="panel p-4 space-y-4">
+          <button type="button" class="input text-left flex items-center gap-3 py-3" @click="abrirCliente">
+            <span class="h-10 w-10 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center shrink-0">
+              <Icon name="users" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span v-if="cliente.codigo" class="block font-semibold truncate">{{ cliente.fantasia || cliente.razao }}</span>
+              <span v-else class="block text-ink-400">Selecionar cliente</span>
+              <span v-if="cliente.codigo" class="block meta truncate">Crédito disponível R$ {{ formatReal(cliente.credito) }}</span>
+            </span>
+            <span class="text-sm font-semibold text-brand-700">{{ cliente.codigo ? 'Trocar' : 'Escolher' }}</span>
+          </button>
+          <template v-if="cliente.codigo">
+            <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+              <div><dt class="meta text-xs">Código</dt><dd class="font-medium tabular-nums">{{ cliente.codigo }}</dd></div>
+              <div><dt class="meta text-xs">CNPJ/CPF</dt><dd class="font-medium tabular-nums">{{ cliente.cnpj || '—' }}</dd></div>
+              <div><dt class="meta text-xs">Limite de crédito</dt><dd class="font-medium tabular-nums">R$ {{ formatReal(cliente.limcred) }}</dd></div>
+              <div><dt class="meta text-xs">Saldo</dt><dd class="font-medium tabular-nums">R$ {{ formatReal(cliente.saldo) }}</dd></div>
+            </dl>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" class="btn btn-tonal btn-sm" @click="abrirSucata">Saldo de sucata</button>
+              <button type="button" class="btn btn-tonal btn-sm" @click="abrirSaldos">Saldos do cliente</button>
             </div>
+          </template>
+        </section>
+
+        <section class="panel p-4 space-y-4">
+          <div>
+            <span class="label">Tipo</span>
+            <Segmented
+              v-model="store.cabecalho.tipo"
+              :options="[{ value: 'S', label: 'Saída' }, { value: 'E', label: 'Entrada' }, { value: 'O', label: 'Orçamento' }]"
+              label="Tipo do pedido"
+            />
+          </div>
+          <div class="grid grid-cols-2 gap-3">
             <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Data</span>
+              <span class="label">Data</span>
               <input v-model="store.cabecalho.data" type="date" class="input" />
             </label>
             <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Empresa</span>
-              <select v-model="store.cabecalho.empresa" class="input">
-                <option value="" disabled>Selecione a Empresa</option>
-                <option v-for="e in empresas" :key="e.empresa" :value="e.empresa">{{ e.fantasia }}</option>
-              </select>
-            </label>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Vendedor</span>
-              <select v-model="store.cabecalho.vendedor" class="input">
-                <option value="" disabled>Selecione o Vendedor</option>
-                <option v-for="v in vendedores" :key="v.codigo" :value="v.codigo">{{ v.nome }}</option>
-              </select>
-            </label>
-
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Cliente</span>
-              <button type="button" class="input text-left" @click="abrirCliente">
-                {{ cliente.fantasia || cliente.razao || 'Selecionar Cliente' }}
-              </button>
-            </label>
-            <div class="grid grid-cols-2 gap-2">
-              <button type="button" class="rounded-xl bg-navy-800 text-white text-xs font-semibold py-2" @click="abrirSucata">Visualizar Sucata</button>
-              <button type="button" class="rounded-xl bg-navy-800 text-white text-xs font-semibold py-2" @click="abrirSaldos">Saldos Cliente</button>
-            </div>
-            <div class="grid grid-cols-2 gap-3 text-xs">
-              <div><span class="text-ink-400">Código:</span> {{ cliente.codigo || '—' }}</div>
-              <div><span class="text-ink-400">CNPJ/CPF:</span> {{ cliente.cnpj || '—' }}</div>
-              <div><span class="text-ink-400">Limite:</span> {{ formatReal(cliente.limcred) }}</div>
-              <div><span class="text-ink-400">Crédito:</span> {{ formatReal(cliente.credito) }}</div>
-              <div><span class="text-ink-400">Saldo:</span> {{ formatReal(cliente.saldo) }}</div>
-            </div>
-
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Operação</span>
-              <button type="button" class="input text-left" @click="abrirOperacao">
-                {{ operacaoLabel }}
-              </button>
-            </label>
-            <div class="grid grid-cols-2 gap-3 text-xs">
-              <div><span class="text-ink-400">Cobrança:</span> {{ store.cabecalho.cobranca || '—' }}</div>
-              <div><span class="text-ink-400">Local:</span> {{ store.cabecalho.local ?? '—' }}</div>
-            </div>
-
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Condição de Pagamento</span>
-              <select v-model="store.cabecalho.condpag" class="input">
-                <option value="" disabled>Selecione a Condição</option>
-                <option v-for="c in condicoes" :key="c.codigo" :value="c.codigo">{{ c.descr }}</option>
-              </select>
-            </label>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Tabela de Preço</span>
-              <select v-model="store.cabecalho.tabela" class="input">
-                <option value="" disabled>Selecione a Tabela</option>
-                <option v-for="t in tabelas" :key="t.codigo" :value="t.codigo">{{ t.descricao }}</option>
-              </select>
-            </label>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Carga</span>
-              <button type="button" class="input text-left" @click="abrirCarga">
-                {{ cargaLabel }}
-              </button>
-            </label>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Comissão</span>
-              <select v-model="store.cabecalho.comissao" class="input">
-                <option value="" disabled>Selecione a Comissão</option>
-                <option v-for="c in comissoes" :key="c.codigo" :value="c.codigo">{{ c.descricao }}</option>
-              </select>
-            </label>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Observação</span>
-              <textarea v-model="store.cabecalho.obsped" rows="3" class="input" />
-            </label>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Complemento</span>
-              <textarea v-model="store.cabecalho.complemento" rows="3" class="input" />
+              <span class="label">Nº da nota</span>
+              <input v-model="store.cabecalho.numero" type="text" inputmode="numeric" class="input" />
             </label>
           </div>
+          <label class="block">
+            <span class="label">Empresa</span>
+            <SelectField v-model="store.cabecalho.empresa" :options="empresas.map((e) => ({ value: e.empresa, label: e.fantasia }))" title="Selecionar empresa" placeholder="Selecione a empresa" />
+          </label>
+          <label class="block">
+            <span class="label">Vendedor</span>
+            <SelectField v-model="store.cabecalho.vendedor" :options="vendedores.map((v) => ({ value: v.codigo, label: v.nome }))" title="Selecionar vendedor" placeholder="Selecione o vendedor" />
+          </label>
         </section>
-      </div>
 
-      <div v-else-if="tab === 'incluir'" class="space-y-4">
-        <section class="bg-white rounded-card shadow-card p-5">
-          <h2 class="text-sm font-bold text-ink-900 mb-3">Incluir Produto</h2>
-          <div class="flex gap-2 mb-3">
-            <select v-model="prodCampo" class="input w-32 shrink-0">
-              <option value="descricao">Descrição</option>
-              <option value="descred">Desc. Reduzida</option>
-              <option value="codigo">Código</option>
-            </select>
-            <input
-              v-model="prodBusca"
-              class="input flex-1"
-              type="text"
-              placeholder="Buscar produto..."
-              @keyup.enter="buscarProdutos()"
-            />
-            <button class="btn-primary shrink-0 px-4" @click="buscarProdutos()">Buscar</button>
+        <section class="panel p-4 space-y-4">
+          <h3 class="section-title">Condições comerciais</h3>
+          <div>
+            <span class="label">Operação</span>
+            <button type="button" class="input text-left flex items-center justify-between gap-2" @click="abrirOperacao">
+              <span class="truncate" :class="store.cabecalho.operacao ? '' : 'text-ink-400'">{{ operacaoLabel }}</span>
+              <Icon name="chevron-right" class="text-ink-400" />
+            </button>
+            <p v-if="store.cabecalho.operacao" class="meta mt-1.5">
+              Cobrança {{ store.cabecalho.cobranca || '—' }}, local {{ store.cabecalho.local ?? '—' }}
+            </p>
+          </div>
+          <label class="block">
+            <span class="label">Condição de pagamento</span>
+            <SelectField v-model="store.cabecalho.condpag" :options="condicoes.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar condição de pagamento" placeholder="Selecione a condição" />
+          </label>
+          <label class="block">
+            <span class="label">Tabela de preço</span>
+            <SelectField v-model="store.cabecalho.tabela" :options="tabelas.map((t) => ({ value: t.codigo, label: t.descricao }))" title="Selecionar tabela de preço" placeholder="Selecione a tabela" />
+          </label>
+          <div>
+            <span class="label">Carga</span>
+            <button type="button" class="input text-left flex items-center justify-between gap-2" @click="abrirCarga">
+              <span class="truncate" :class="store.cabecalho.carga ? '' : 'text-ink-400'">{{ cargaLabel }}</span>
+              <Icon name="chevron-right" class="text-ink-400 shrink-0" />
+            </button>
+          </div>
+          <label class="block">
+            <span class="label">Comissão</span>
+            <SelectField v-model="store.cabecalho.comissao" :options="comissoes.map((c) => ({ value: c.codigo, label: c.descricao }))" title="Selecionar comissão" placeholder="Selecione a comissão" />
+          </label>
+        </section>
+      </template>
+
+      <!-- 2. Produtos -->
+      <template v-else-if="step === 1">
+        <Segmented
+          v-model="prodView"
+          :options="[{ value: 'buscar', label: 'Buscar produtos' }, { value: 'pedido', label: `No pedido (${itens.length})` }]"
+          label="Produtos"
+        />
+
+        <template v-if="prodView === 'buscar'">
+          <p v-if="!store.cabecalho.tabela" class="flex items-start gap-2 rounded-xl bg-sun-100 text-sun-800 px-3.5 py-3 text-sm">
+            <Icon name="info" class="mt-px" />
+            <span>Escolha a tabela de preço na <button class="font-semibold underline" @click="goTo(0)">etapa 1</button> para buscar produtos.</span>
+          </p>
+          <div class="space-y-3">
+            <SearchField v-model="prodBusca" placeholder="Buscar produto" @submit="buscarProdutos()" />
+            <Segmented v-model="prodCampo" :options="PROD_OPTIONS" label="Buscar produto por" />
           </div>
 
-          <EmptyState v-if="prodSearched && produtos.length === 0" label="Nenhum produto encontrado" />
-          <div v-else class="grid grid-cols-1 gap-3">
-            <div v-for="p in produtos" :key="p.codigo" class="rounded-xl border border-ink-200 p-4">
-              <div class="flex items-start justify-between gap-2">
+          <div v-if="prodSearched && produtos.length === 0" class="panel">
+            <EmptyState icon="package" label="Nenhum produto encontrado" hint="Tente outro termo ou busque por código." />
+          </div>
+          <div v-else-if="!prodSearched" class="panel">
+            <EmptyState icon="search" label="Busque um produto" hint="Digite parte da descrição ou o código e toque em buscar." />
+          </div>
+          <ul v-else class="list">
+            <li v-for="p in produtos" :key="p.codigo" class="px-4 py-3.5">
+              <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <p class="text-sm font-semibold text-ink-900 truncate">{{ p.descvis }}</p>
-                  <p class="text-xs text-ink-400">Cód. {{ p.codigo }} · Estoque {{ p.estoque ?? 0 }}</p>
-                  <p class="text-xs font-semibold text-accent-600">{{ formatReal(p.venda) }}</p>
+                  <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ p.descvis }}</p>
+                  <p class="meta tabular-nums mt-0.5">Cód. {{ p.codigo }}, estoque {{ p.estoque ?? 0 }}</p>
                 </div>
-                <button class="p-1 text-ink-400 shrink-0" aria-label="Editar" @click="abrirModalProduto(p)">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path stroke-linecap="round" stroke-linejoin="round" d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                </button>
+                <p class="text-[15px] font-semibold tabular-nums shrink-0">R$ {{ formatReal(p.venda) }}</p>
               </div>
               <div class="flex items-center gap-2 mt-3">
-                <input v-model="p.qtd" type="number" min="0" class="input w-20" placeholder="Qtd" />
-                <input v-model="p.unidade" type="text" class="input w-20" placeholder="Un." />
-                <button class="btn-primary flex-1 text-sm" @click="quickAdd(p)">Adicionar</button>
-              </div>
-            </div>
-          </div>
-          <button
-            v-if="produtos.length >= PROD_LIMIT"
-            class="w-full mt-3 py-2 text-sm font-semibold text-accent-600"
-            @click="maisProdutos"
-          >Mais resultados</button>
-        </section>
-      </div>
-
-      <div v-else-if="tab === 'itens'" class="space-y-4">
-        <section class="bg-white rounded-card shadow-card p-5">
-          <h2 class="text-sm font-bold text-ink-900 mb-3">Itens</h2>
-          <EmptyState v-if="itens.length === 0" label="Nenhum item no pedido" />
-          <div v-else class="overflow-x-auto -mx-5">
-            <table class="w-full text-sm min-w-[480px]">
-              <thead>
-                <tr class="text-left text-xs text-ink-400">
-                  <th class="py-2 px-4 font-medium">Produto</th>
-                  <th class="py-2 px-2 font-medium">Qtd</th>
-                  <th class="py-2 px-2 font-medium">Vl. Unit</th>
-                  <th class="py-2 px-2 font-medium">Desc.</th>
-                  <th class="py-2 px-2 font-medium">Total</th>
-                  <th class="py-2 px-2 font-medium"></th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-ink-200">
-                <tr v-for="i in itens" :key="i.idpedido">
-                  <td class="py-2 px-4">
-                    <p class="font-medium text-ink-900 truncate">{{ i.descricao }}</p>
-                    <p class="text-xs text-ink-400">{{ i.codproduto }}</p>
-                  </td>
-                  <td class="py-2 px-2 text-ink-600">{{ i.qtd }}</td>
-                  <td class="py-2 px-2 text-ink-600">{{ formatReal(i.vlunit) }}</td>
-                  <td class="py-2 px-2 text-ink-600">{{ descontoLabel(i) }}</td>
-                  <td class="py-2 px-2 font-semibold text-ink-900">{{ formatReal(i.vltotal) }}</td>
-                  <td class="py-2 px-2 whitespace-nowrap">
-                    <button class="p-1 text-ink-400" aria-label="Editar" @click="abrirModalItem(i)">
-                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path stroke-linecap="round" stroke-linejoin="round" d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    </button>
-                    <button class="p-1 text-ink-400" aria-label="Excluir" @click="removerItem(i)">
-                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-
-      <div v-else-if="tab === 'desconto'" class="space-y-4">
-        <section class="bg-white rounded-card shadow-card p-5">
-          <h2 class="text-sm font-bold text-ink-900 mb-3">Desconto</h2>
-          <div class="grid grid-cols-1 gap-3">
-            <div class="flex gap-2">
-              <button
-                class="flex-1 rounded-xl py-2 text-sm font-semibold"
-                :class="descontoModo === 'percent' ? 'bg-accent-500 text-navy-950' : 'bg-navy-800 text-ink-200'"
-                @click="descontoModo = 'percent'"
-              >%</button>
-              <button
-                class="flex-1 rounded-xl py-2 text-sm font-semibold"
-                :class="descontoModo === 'reais' ? 'bg-accent-500 text-navy-950' : 'bg-navy-800 text-ink-200'"
-                @click="descontoModo = 'reais'"
-              >R$ (por item)</button>
-            </div>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Valor do desconto</span>
-              <input v-model.number="descontoValor" type="number" min="0" class="input" placeholder="0,00" />
-            </label>
-            <div class="grid grid-cols-2 gap-3">
-              <button class="btn-primary text-sm" @click="aplicarDescontoPedido">Aplicar</button>
-              <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-4 text-sm" @click="removerDesconto">Remover</button>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <div v-else-if="tab === 'financeiro'" class="space-y-4">
-        <section class="bg-white rounded-card shadow-card p-5">
-          <h2 class="text-sm font-bold text-ink-900 mb-3">Financeiro</h2>
-          <div class="grid grid-cols-1 gap-3">
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Cobrança</span>
-              <select v-model="fin.cobranca" class="input">
-                <option value="" disabled>Selecione a Cobrança</option>
-                <option v-for="c in cobrancas" :key="c.codigo" :value="c.codigo">{{ c.descr }}</option>
-              </select>
-            </label>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Condição</span>
-              <select v-model="fin.condicao" class="input">
-                <option value="" disabled>Selecione a Condição</option>
-                <option v-for="c in condicoes" :key="c.codigo" :value="c.codigo">{{ c.descr }}</option>
-              </select>
-            </label>
-            <div class="grid grid-cols-2 gap-3">
-              <label class="block">
-                <span class="text-ink-600 text-xs font-medium">Valor</span>
-                <input v-model="fin.valor" type="number" min="0" step="0.01" class="input" placeholder="0,00" />
-              </label>
-              <label class="block">
-                <span class="text-ink-600 text-xs font-medium">Autorização</span>
-                <input v-model="fin.autorizacao" type="text" class="input" />
-              </label>
-            </div>
-            <button class="btn-primary text-sm" @click="gravarParcela">Gravar</button>
-          </div>
-
-          <p class="mt-4 text-sm font-semibold text-ink-900">
-            Restante: {{ formatReal(remaining) }}
-          </p>
-
-          <EmptyState v-if="parcelas.length === 0" label="Nenhuma parcela" />
-          <ul v-else class="mt-3 divide-y divide-ink-200">
-            <li v-for="pa in parcelas" :key="pa.idfinanceiro" class="py-3 flex items-center justify-between gap-3">
-              <div class="min-w-0">
-                <p class="text-sm font-medium text-ink-900">{{ pa.cobdesc || pa.cobranca }} · {{ pa.condesc || pa.condicao }}</p>
-                <p class="text-xs text-ink-400">{{ pa.autorizacao || '—' }}</p>
-              </div>
-              <div class="flex items-center gap-2 shrink-0">
-                <span class="text-sm font-semibold text-ink-900">{{ formatReal(pa.valor) }}</span>
-                <button class="p-1 text-ink-400" aria-label="Excluir" @click="removerParcela(pa.idfinanceiro)">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+                <label class="w-20">
+                  <span class="sr-only">Quantidade</span>
+                  <input v-model="p.qtd" type="number" inputmode="decimal" min="0" class="input min-h-10 py-1.5 text-center" placeholder="Qtd" />
+                </label>
+                <label class="w-20">
+                  <span class="sr-only">Unidade</span>
+                  <input v-model="p.unidade" type="text" class="input min-h-10 py-1.5 text-center" placeholder="Un." />
+                </label>
+                <button class="btn btn-primary btn-sm min-h-10 flex-1" @click="quickAdd(p)">
+                  <Icon name="plus" :size="16" /> Adicionar
+                </button>
+                <button class="icon-btn border border-ink-200" aria-label="Ajustar preço e desconto" @click="abrirModalProduto(p)">
+                  <Icon name="edit" :size="18" />
                 </button>
               </div>
             </li>
           </ul>
-        </section>
-      </div>
+          <button v-if="produtos.length >= PROD_LIMIT" class="btn btn-secondary w-full" @click="maisProdutos">Carregar mais produtos</button>
+        </template>
 
-      <div v-else-if="tab === 'negociacao'" class="space-y-4">
-        <section class="bg-white rounded-card shadow-card p-5">
-          <h2 class="text-sm font-bold text-ink-900 mb-3">Negociação</h2>
-          <div class="grid grid-cols-1 gap-3">
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Frete</span>
-              <input v-model="store.cabecalho.valor_frete" type="number" min="0" step="0.01" class="input" placeholder="0,00" />
-            </label>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Retsuc</span>
-              <input v-model="store.cabecalho.retsuc" type="number" min="0" step="0.01" class="input" placeholder="0,00" />
-            </label>
-
-            <div class="flex items-center justify-between gap-3">
-              <span class="text-sm font-medium text-ink-900">Acréscimo por quilo</span>
-              <input v-model="snquilo" type="checkbox" class="h-5 w-5" />
-            </div>
-            <label class="block" :class="{ 'opacity-50': !snquilo }">
-              <span class="text-ink-600 text-xs font-medium">Valor por quilo</span>
-              <input v-model="acrescimo.vlquilo" type="number" min="0" step="0.01" class="input" placeholder="0,00" />
-            </label>
-
-            <div class="flex items-center justify-between gap-3">
-              <span class="text-sm font-medium text-ink-900">Acréscimo por unidade</span>
-              <input v-model="snunidade" type="checkbox" class="h-5 w-5" />
-            </div>
-            <label class="block" :class="{ 'opacity-50': !snunidade }">
-              <span class="text-ink-600 text-xs font-medium">Valor por unidade</span>
-              <input v-model="acrescimo.vlunidade" type="number" min="0" step="0.01" class="input" placeholder="0,00" />
-            </label>
-
-            <div class="grid grid-cols-2 gap-3">
-              <button class="btn-primary text-sm" @click="aplicarAcrescimoPedido">Aplicar</button>
-              <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-4 text-sm" @click="removerAcrescimo">Remover</button>
-            </div>
-
-            <div class="flex items-center justify-between gap-3 pt-1">
-              <span class="text-sm font-medium text-ink-900">Resolvido</span>
-              <input
-                type="checkbox"
-                class="h-5 w-5"
-                :checked="store.cabecalho.resolvido === 'S'"
-                @change="store.cabecalho.resolvido = ($event.target as HTMLInputElement).checked ? 'S' : 'N'"
-              />
-            </div>
+        <template v-else>
+          <div v-if="itens.length === 0" class="panel">
+            <EmptyState icon="cart" label="Nenhum item no pedido" hint="Busque produtos e toque em Adicionar.">
+              <button class="btn btn-tonal btn-sm" @click="prodView = 'buscar'">Buscar produtos</button>
+            </EmptyState>
           </div>
+          <ul v-else class="list">
+            <li v-for="i in itens" :key="i.idpedido" class="flex items-start gap-2 pl-4 pr-2 py-3">
+              <div class="min-w-0 flex-1">
+                <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ i.descricao }}</p>
+                <p class="meta tabular-nums mt-0.5">{{ i.qtd }} × R$ {{ formatReal(i.vlunit) }}</p>
+                <p v-if="descontoLabel(i) !== '—'" class="text-xs text-brand-700 font-medium mt-0.5">Desconto {{ descontoLabel(i) }}</p>
+              </div>
+              <p class="text-[15px] font-semibold tabular-nums shrink-0 pt-px">R$ {{ formatReal(i.vltotal) }}</p>
+              <div class="flex shrink-0 -mt-1">
+                <button class="icon-btn" :aria-label="`Editar ${i.descricao}`" @click="abrirModalItem(i)">
+                  <Icon name="edit" :size="18" />
+                </button>
+                <button class="icon-btn text-danger-600" :aria-label="`Excluir ${i.descricao}`" @click="removerItem(i)">
+                  <Icon name="trash" :size="18" />
+                </button>
+              </div>
+            </li>
+          </ul>
+        </template>
+      </template>
+
+      <!-- 3. Pagamento -->
+      <template v-else-if="step === 2">
+        <section class="panel p-4 space-y-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h2 class="section-title">Parcelas</h2>
+              <p class="meta mt-0.5">{{ finObrigatorio ? 'Distribua o total entre as cobranças.' : 'Opcional para este usuário.' }}</p>
+            </div>
+            <p class="text-right shrink-0">
+              <span class="block meta text-xs">Falta distribuir</span>
+              <span class="font-semibold tabular-nums" :class="pagamentoOk ? 'text-success-600' : 'text-sun-800'">R$ {{ formatReal(remaining) }}</span>
+            </p>
+          </div>
+          <ul v-if="parcelas.length" class="divide-y divide-ink-100 border-y border-ink-100 -mx-4">
+            <li v-for="pa in parcelas" :key="pa.idfinanceiro" class="flex items-center gap-3 pl-4 pr-2 py-3">
+              <div class="min-w-0 flex-1">
+                <p class="text-[15px] font-medium truncate">{{ pa.cobdesc || pa.cobranca }}</p>
+                <p class="meta truncate">{{ pa.condesc || pa.condicao }}{{ pa.autorizacao ? `, autorização ${pa.autorizacao}` : '' }}</p>
+              </div>
+              <span class="text-[15px] font-semibold tabular-nums">R$ {{ formatReal(pa.valor) }}</span>
+              <button class="icon-btn text-danger-600" aria-label="Excluir parcela" @click="removerParcela(pa.idfinanceiro)">
+                <Icon name="trash" :size="18" />
+              </button>
+            </li>
+          </ul>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="block col-span-2">
+              <span class="label">Cobrança</span>
+              <SelectField v-model="fin.cobranca" :options="cobrancas.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar cobrança" placeholder="Selecione a cobrança" />
+            </label>
+            <label class="block col-span-2">
+              <span class="label">Condição</span>
+              <SelectField v-model="fin.condicao" :options="condicoes.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar condição" placeholder="Selecione a condição" />
+            </label>
+            <label class="block">
+              <span class="label">Valor</span>
+              <input v-model="fin.valor" type="number" inputmode="decimal" min="0" step="0.01" class="input" :placeholder="formatReal(remaining)" />
+            </label>
+            <label class="block">
+              <span class="label">Autorização</span>
+              <input v-model="fin.autorizacao" type="text" class="input" />
+            </label>
+          </div>
+          <button class="btn btn-tonal w-full" @click="gravarParcela">
+            <Icon name="plus" :size="18" /> Adicionar parcela
+          </button>
         </section>
-      </div>
-    </div>
 
-    <div class="sticky bottom-0 z-10 mt-4 bg-white border-t border-ink-200 px-6 py-4 safe-bottom">
-      <div class="grid grid-cols-4 gap-2">
-        <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm" @click="cancelarPedido">Cancelar</button>
-        <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm" @click="imprimir">Imprimir</button>
-        <button class="btn-primary text-sm" @click="finalizarPedido">Finalizar</button>
-        <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm" @click="nfe">NF-e</button>
-      </div>
-      <div class="grid grid-cols-4 gap-2 mt-2">
-        <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm" @click="gerarTermo">Termo</button>
-        <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm" @click="boleto">Boleto</button>
-        <button
-          v-if="store.pedstatus === 'F'"
-          class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm"
-          @click="reabrir"
-        >Reabrir</button>
-        <button
-          v-if="store.cabecalho.tipo === 'O'"
-          class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm"
-          @click="transformar"
-        >Transf. Pedido</button>
-        <button
-          v-if="isEdit"
-          class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-2 text-sm"
-          @click="duplicar"
-        >Duplicar</button>
-      </div>
-    </div>
-
-    <div
-      v-if="showCliente"
-      class="fixed inset-0 z-40 flex items-end justify-center bg-black/50"
-      @click.self="showCliente = false"
-    >
-      <div class="w-full max-h-[90vh] overflow-auto rounded-t-2xl bg-white p-5">
-        <h2 class="text-lg font-bold text-ink-900 mb-3">Cliente</h2>
-        <div class="flex gap-2 mb-3">
-          <select v-model="clienteCampo" class="input w-28 shrink-0">
-            <option value="fantasia">Fantasia</option>
-            <option value="razao">Razão</option>
-            <option value="codigo">Código</option>
-            <option value="cnpj">CNPJ</option>
-            <option value="cidade">Cidade</option>
-            <option value="estado">Estado</option>
-          </select>
-          <input
-            v-model="clienteBusca"
-            class="input flex-1"
-            type="text"
-            placeholder="Buscar..."
-            @keyup.enter="buscarClientes"
+        <section class="panel p-4 space-y-4">
+          <div>
+            <h2 class="section-title">Desconto no pedido</h2>
+            <p class="meta mt-0.5">Aplicado a todos os itens. Só vale para pedido aberto.</p>
+          </div>
+          <Segmented
+            v-model="descontoModo"
+            :options="[{ value: 'percent', label: 'Percentual (%)' }, { value: 'reais', label: 'R$ por item' }]"
+            label="Tipo de desconto"
           />
-          <button class="btn-primary shrink-0 px-4" @click="buscarClientes">Buscar</button>
-        </div>
-
-        <EmptyState v-if="clientes.length === 0" label="Nenhum cliente encontrado" />
-        <ul v-else class="divide-y divide-ink-200">
-          <li v-for="c in clientes" :key="c.clifor">
-            <button class="w-full text-left px-4 py-3 hover:bg-ink-200" @click="aplicarCliente(c)">
-              <p class="text-sm font-medium text-ink-900">{{ c.fantasia }}</p>
-              <p class="text-xs text-ink-400">{{ c.cidade }} / {{ c.estado }} · {{ c.cnpj }}</p>
-            </button>
-          </li>
-        </ul>
-        <button class="w-full mt-3 py-2 text-sm font-semibold text-ink-600" @click="showCliente = false">Fechar</button>
-      </div>
-    </div>
-
-    <div
-      v-if="showOperacao"
-      class="fixed inset-0 z-40 flex items-end justify-center bg-black/50"
-      @click.self="showOperacao = false"
-    >
-      <div class="w-full max-h-[90vh] overflow-auto rounded-t-2xl bg-white p-5">
-        <h2 class="text-lg font-bold text-ink-900 mb-3">Operação</h2>
-        <EmptyState v-if="operacoes.length === 0" label="Nenhuma operação para a empresa selecionada" />
-        <ul v-else class="divide-y divide-ink-200">
-          <li v-for="o in operacoes" :key="o.operacao">
-            <button class="w-full text-left px-4 py-3 hover:bg-ink-200" @click="aplicarOperacao(o)">
-              <p class="text-sm font-medium text-ink-900">{{ o.operacao }}</p>
-              <p class="text-xs text-ink-400">Cobrança {{ o.cobranca }} · Local {{ o.local }}</p>
-            </button>
-          </li>
-        </ul>
-        <button class="w-full mt-3 py-2 text-sm font-semibold text-ink-600" @click="showOperacao = false">Fechar</button>
-      </div>
-    </div>
-
-    <div
-      v-if="showCarga"
-      class="fixed inset-0 z-40 flex items-end justify-center bg-black/50"
-      @click.self="showCarga = false"
-    >
-      <div class="w-full max-h-[90vh] overflow-auto rounded-t-2xl bg-white p-5">
-        <h2 class="text-lg font-bold text-ink-900 mb-3">Carga</h2>
-        <EmptyState v-if="cargas.length === 0" label="Nenhuma carga disponível" />
-        <ul v-else class="divide-y divide-ink-200">
-          <li v-for="c in cargas" :key="c.codigo">
-            <button class="w-full text-left px-4 py-3 hover:bg-ink-200" @click="aplicarCarga(c)">
-              <p class="text-sm font-medium text-ink-900">{{ c.descricao }}</p>
-            </button>
-          </li>
-        </ul>
-        <button class="w-full mt-3 py-2 text-sm font-semibold text-ink-600" @click="showCarga = false">Fechar</button>
-      </div>
-    </div>
-
-    <div
-      v-if="modal.open"
-      class="fixed inset-0 z-40 flex items-end justify-center bg-black/50"
-      @click.self="modal.open = false"
-    >
-      <div class="w-full max-h-[90vh] overflow-auto rounded-t-2xl bg-white p-5">
-        <h2 class="text-lg font-bold text-ink-900 mb-1">Produto</h2>
-        <p class="text-xs text-ink-400 mb-3">{{ modal.codproduto }} · {{ modal.descricao }}</p>
-
-        <div class="grid grid-cols-1 gap-3">
           <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Quantidade</span>
-            <input v-model.number="modal.quantidade" type="number" min="0" class="input" />
+            <span class="sr-only">{{ descontoModo === 'percent' ? 'Desconto em %' : 'Desconto em R$ por item' }}</span>
+            <input v-model.number="descontoValor" type="number" inputmode="decimal" min="0" class="input" placeholder="0,00" />
           </label>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Unidade</span>
-            <input v-model="modal.unidade" type="text" class="input" placeholder="vazio = sem conversão" />
+          <div class="grid grid-cols-2 gap-2">
+            <button class="btn btn-secondary" :disabled="!aberto" @click="removerDesconto">Remover</button>
+            <button class="btn btn-primary" :disabled="!aberto" @click="aplicarDescontoPedido">Aplicar</button>
+          </div>
+        </section>
+
+        <section class="panel p-4 space-y-4">
+          <h2 class="section-title">Acréscimo</h2>
+          <label class="flex items-center justify-between gap-3">
+            <span class="text-[15px]">Por quilo</span>
+            <input v-model="snquilo" type="checkbox" class="switch" />
           </label>
+          <label v-if="snquilo" class="block">
+            <span class="label">Valor por quilo (R$)</span>
+            <input v-model="acrescimo.vlquilo" type="number" inputmode="decimal" min="0" step="0.01" class="input" placeholder="0,00" />
+          </label>
+          <label class="flex items-center justify-between gap-3">
+            <span class="text-[15px]">Por unidade</span>
+            <input v-model="snunidade" type="checkbox" class="switch" />
+          </label>
+          <label v-if="snunidade" class="block">
+            <span class="label">Valor por unidade (R$)</span>
+            <input v-model="acrescimo.vlunidade" type="number" inputmode="decimal" min="0" step="0.01" class="input" placeholder="0,00" />
+          </label>
+          <div class="grid grid-cols-2 gap-2">
+            <button class="btn btn-secondary" :disabled="!aberto" @click="removerAcrescimo">Remover</button>
+            <button class="btn btn-primary" :disabled="!aberto" @click="aplicarAcrescimoPedido">Aplicar</button>
+          </div>
+        </section>
+
+        <section class="panel p-4 space-y-4">
+          <h2 class="section-title">Frete e negociação</h2>
           <div class="grid grid-cols-2 gap-3">
             <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Desc. Incluso (%)</span>
-              <input v-model.number="modal.descinc" type="number" min="0" class="input" />
+              <span class="label">Frete (R$)</span>
+              <input v-model="store.cabecalho.valor_frete" type="number" inputmode="decimal" min="0" step="0.01" class="input" placeholder="0,00" />
             </label>
             <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Fator</span>
-              <input :value="modalFator" type="text" class="input" disabled />
+              <span class="label">Retsuc (R$)</span>
+              <input v-model="store.cabecalho.retsuc" type="number" inputmode="decimal" min="0" step="0.01" class="input" placeholder="0,00" />
             </label>
           </div>
-          <div class="flex gap-2">
-            <button
-              class="flex-1 rounded-xl py-2 text-sm font-semibold"
-              :class="modal.descper === 'N' ? 'bg-accent-500 text-navy-950' : 'bg-navy-800 text-ink-200'"
-              @click="modal.descper = 'N'"
-            >Desconto R$</button>
-            <button
-              class="flex-1 rounded-xl py-2 text-sm font-semibold"
-              :class="modal.descper === 'S' ? 'bg-accent-500 text-navy-950' : 'bg-navy-800 text-ink-200'"
-              @click="modal.descper = 'S'"
-            >Desconto %</button>
-          </div>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Desconto</span>
-            <input v-model.number="modal.desconto" type="number" min="0" class="input" />
+          <label class="flex items-center justify-between gap-3">
+            <span>
+              <span class="block text-[15px] font-medium">Negociação resolvida</span>
+              <span class="meta">Marque quando as condições estiverem acertadas.</span>
+            </span>
+            <input
+              type="checkbox"
+              class="switch"
+              :checked="store.cabecalho.resolvido === 'S'"
+              @change="store.cabecalho.resolvido = ($event.target as HTMLInputElement).checked ? 'S' : 'N'"
+            />
           </label>
+        </section>
+      </template>
 
-          <div class="rounded-xl bg-navy-800 p-4 grid grid-cols-2 gap-3 text-xs">
-            <div><span class="text-ink-400">Vl. Base:</span> <span class="text-white font-semibold">{{ formatReal(modalPreview.vlunbase) }}</span></div>
-            <div><span class="text-ink-400">Vl. Unitário:</span> <span class="text-white font-semibold">{{ formatReal(modalPreview.vlunit) }}</span></div>
-            <div class="col-span-2"><span class="text-ink-400">Total:</span> <span class="text-white font-semibold">{{ formatReal(modal.quantidade > 0 ? modalPreview.total : 0) }}</span></div>
+      <!-- 4. Revisão -->
+      <template v-else>
+        <div class="pt-1 pb-2">
+          <p class="meta text-sm">Total do pedido</p>
+          <p class="mt-1 flex items-baseline gap-1.5">
+            <span class="text-lg text-ink-500">R$</span>
+            <span class="figure text-[44px]">{{ formatReal(total) }}</span>
+          </p>
+          <p class="meta mt-2 tabular-nums">
+            {{ itens.length }} {{ itens.length === 1 ? 'item' : 'itens' }}, {{ quantidade }} {{ quantidade === 1 ? 'unidade' : 'unidades' }},
+            flex R$ {{ formatReal(flexPedido) }} (saldo R$ {{ formatReal(saldoFlex) }})
+          </p>
+        </div>
+
+        <section class="panel p-4">
+          <div class="flex items-baseline justify-between gap-3">
+            <h2 class="text-[13px] font-medium text-ink-500">Cliente e condições</h2>
+            <button class="text-sm font-semibold text-brand-700" @click="goTo(0)">Editar</button>
           </div>
+          <p class="mt-1.5 text-[15px] font-semibold">{{ cliente.fantasia || cliente.razao || 'Cliente não informado' }}</p>
+          <p class="mt-0.5 text-sm text-ink-700">{{ condicoesResumo || 'Condições não informadas' }}</p>
+          <p class="mt-0.5 meta">{{ [tipoLabel, mudadata(store.cabecalho.data), vendedorNome && `vendedor ${vendedorNome}`, comissaoNome && `comissão ${comissaoNome}`].filter(Boolean).join(', ') }}</p>
+        </section>
 
-          <div class="grid grid-cols-2 gap-3">
-            <button class="btn-primary text-sm" @click="gravarModal">Gravar</button>
-            <button class="rounded-xl bg-navy-800 text-white font-semibold py-3 px-4 text-sm" @click="modal.open = false">Fechar</button>
+        <section class="panel p-4">
+          <div class="flex items-baseline justify-between gap-3 mb-1.5">
+            <h2 class="text-[13px] font-medium text-ink-500">Produtos</h2>
+            <button class="text-sm font-semibold text-brand-700" @click="goTo(1)">Editar</button>
+          </div>
+          <p v-if="itens.length === 0" class="text-sm text-ink-500">Nenhum item.</p>
+          <div v-for="i in itens.slice(0, 6)" :key="i.idpedido" class="flex justify-between gap-3 py-1.5 text-sm">
+            <span class="min-w-0 truncate">{{ i.qtd }} × {{ i.descricao }}</span>
+            <span class="font-semibold tabular-nums shrink-0">R$ {{ formatReal(i.vltotal) }}</span>
+          </div>
+          <button v-if="itens.length > 6" class="mt-1 text-sm font-medium text-brand-700" @click="goTo(1); prodView = 'pedido'">
+            Ver mais {{ itens.length - 6 }} {{ itens.length - 6 === 1 ? 'item' : 'itens' }}
+          </button>
+        </section>
+
+        <section class="panel p-4">
+          <div class="flex items-baseline justify-between gap-3 mb-1.5">
+            <h2 class="text-[13px] font-medium text-ink-500">Pagamento</h2>
+            <button class="text-sm font-semibold text-brand-700" @click="goTo(2)">Editar</button>
+          </div>
+          <div v-for="pa in parcelas" :key="pa.idfinanceiro" class="flex justify-between gap-3 py-1.5 text-sm">
+            <span class="min-w-0 truncate">{{ pa.cobdesc || pa.cobranca }}, {{ pa.condesc || pa.condicao }}</span>
+            <span class="font-semibold tabular-nums shrink-0">R$ {{ formatReal(pa.valor) }}</span>
+          </div>
+          <p v-if="parcelas.length === 0" class="text-sm text-ink-500">Nenhuma parcela.</p>
+          <p
+            class="mt-2 flex items-center gap-1.5 text-[13px] font-semibold"
+            :class="pagamentoOk ? 'text-success-600' : finObrigatorio ? 'text-sun-800' : 'text-ink-500'"
+          >
+            <Icon :name="pagamentoOk ? 'check' : 'alert'" :size="16" :stroke="2.2" />
+            {{ pagamentoOk ? 'Total distribuído' : `Falta distribuir R$ ${formatReal(remaining)}` }}
+          </p>
+          <p v-if="Number(store.cabecalho.valor_frete) > 0 || snquilo || snunidade" class="mt-1 meta">
+            {{ [Number(store.cabecalho.valor_frete) > 0 && `frete R$ ${formatReal(store.cabecalho.valor_frete)}`, snquilo && `acréscimo R$ ${formatReal(acrescimo.vlquilo)}/kg`, snunidade && `acréscimo R$ ${formatReal(acrescimo.vlunidade)}/un`].filter(Boolean).join(', ') }}
+          </p>
+        </section>
+
+        <section class="panel p-4 space-y-4">
+          <h2 class="text-[13px] font-medium text-ink-500">Observações</h2>
+          <label class="block">
+            <span class="label">Observação</span>
+            <textarea v-model="store.cabecalho.obsped" rows="2" class="input" @change="salvarCampo" />
+          </label>
+          <label class="block">
+            <span class="label">Complemento</span>
+            <textarea v-model="store.cabecalho.complemento" rows="2" class="input" @change="salvarCampo" />
+          </label>
+        </section>
+      </template>
+    </div>
+
+    <template #footer>
+      <div v-if="step < 3" class="space-y-2.5">
+        <p v-if="itens.length" class="flex items-baseline justify-between text-sm">
+          <span class="meta">{{ itens.length }} {{ itens.length === 1 ? 'item' : 'itens' }}</span>
+          <span class="font-semibold tabular-nums">R$ {{ formatReal(total) }}</span>
+        </p>
+        <div class="flex gap-2">
+          <button v-if="step > 0" class="btn btn-secondary" @click="goTo(step - 1)">Voltar</button>
+          <button class="btn btn-primary flex-1" @click="goTo(step + 1)">{{ STEPS[step].next }}</button>
+        </div>
+      </div>
+      <div v-else class="flex gap-2">
+        <button class="btn btn-secondary px-3.5" aria-label="Mais ações" @click="showAcoes = true">
+          <Icon name="more" :size="22" />
+        </button>
+        <button class="btn btn-secondary" @click="imprimir">
+          <Icon name="printer" /> Imprimir
+        </button>
+        <button class="btn btn-primary flex-1" :disabled="!aberto" @click="finalizarPedido">
+          <Icon name="check" /> Finalizar
+        </button>
+      </div>
+    </template>
+
+    <Sheet :open="showAcoes" title="Ações do pedido" :subtitle="titulo" @close="showAcoes = false">
+      <ul class="-mx-5 divide-y divide-ink-100">
+        <li>
+          <button class="list-row px-5 flex items-center gap-3" @click="acao(nfe)"><Icon name="file" class="text-ink-500" /> Emitir NF-e</button>
+        </li>
+        <li>
+          <button class="list-row px-5 flex items-center gap-3" @click="acao(boleto)"><Icon name="barcode" class="text-ink-500" /> Gerar boleto</button>
+        </li>
+        <li>
+          <button class="list-row px-5 flex items-center gap-3" @click="acao(gerarTermo)"><Icon name="receipt" class="text-ink-500" /> Gerar termo</button>
+        </li>
+        <li v-if="store.pedstatus === 'F'">
+          <button class="list-row px-5 flex items-center gap-3" @click="acao(reabrir)"><Icon name="undo" class="text-ink-500" /> Reabrir pedido</button>
+        </li>
+        <li v-if="store.cabecalho.tipo === 'O'">
+          <button class="list-row px-5 flex items-center gap-3" @click="acao(transformar)"><Icon name="orders" class="text-ink-500" /> Transformar orçamento em pedido</button>
+        </li>
+        <li v-if="isEdit">
+          <button class="list-row px-5 flex items-center gap-3" @click="acao(duplicar)"><Icon name="copy" class="text-ink-500" /> Duplicar pedido</button>
+        </li>
+        <li>
+          <button class="list-row px-5 flex items-center gap-3 text-danger-700" @click="acao(cancelarPedido)"><Icon name="ban" /> Cancelar pedido</button>
+        </li>
+      </ul>
+    </Sheet>
+
+    <Sheet :open="showCliente" title="Selecionar cliente" size="tall" @close="showCliente = false">
+      <div class="sticky top-0 z-10 bg-surface pb-3 space-y-2">
+        <SearchField v-model="clienteBusca" :placeholder="`Buscar por ${CLIENT_OPTIONS.find((o) => o.value === clienteCampo)?.label.toLowerCase()}`" @submit="buscarClientes" />
+        <SelectField v-model="clienteCampo" :options="CLIENT_OPTIONS" title="Buscar em" prefix="Buscar em:" size="sm" aria-label="Buscar em" />
+      </div>
+      <EmptyState v-if="clientes.length === 0" icon="users" label="Nenhum cliente encontrado" />
+      <ul v-else class="divide-y divide-ink-100 -mx-5">
+        <li v-for="c in clientes" :key="c.clifor">
+          <button class="list-row px-5" @click="aplicarCliente(c)">
+            <span class="block text-[15px] font-medium">{{ c.fantasia }}</span>
+            <span class="meta block">{{ c.cidade }}{{ c.estado ? ` / ${c.estado}` : '' }}</span>
+            <span v-if="c.cnpj" class="meta block tabular-nums">{{ c.cnpj }}</span>
+          </button>
+        </li>
+      </ul>
+    </Sheet>
+
+    <Sheet :open="showOperacao" title="Selecionar operação" @close="showOperacao = false">
+      <EmptyState
+        v-if="operacoes.length === 0"
+        icon="info"
+        :label="store.cabecalho.empresa ? 'Nenhuma operação disponível' : 'Selecione a empresa primeiro'"
+        :hint="store.cabecalho.empresa ? 'Não há operações para esta empresa e cliente.' : 'As operações dependem da empresa do pedido.'"
+      />
+      <ul v-else class="divide-y divide-ink-100 -mx-5">
+        <li v-for="o in operacoes" :key="o.operacao">
+          <button class="list-row px-5 flex items-center justify-between gap-3" @click="aplicarOperacao(o)">
+            <span class="min-w-0">
+              <span class="block text-[15px] font-medium">{{ o.operacao }}</span>
+              <span class="meta">Cobrança {{ o.cobranca }}, local {{ o.local }}</span>
+            </span>
+            <Icon v-if="store.cabecalho.operacao === o.operacao" name="check" class="text-brand-700" :stroke="2.4" />
+          </button>
+        </li>
+      </ul>
+    </Sheet>
+
+    <Sheet :open="showCarga" title="Selecionar carga" @close="showCarga = false">
+      <EmptyState v-if="cargas.length === 0" icon="info" label="Nenhuma carga disponível" />
+      <ul v-else class="divide-y divide-ink-100 -mx-5">
+        <li v-for="c in cargas" :key="c.codigo">
+          <button class="list-row px-5 flex items-center justify-between gap-3" @click="aplicarCarga(c)">
+            <span class="text-[15px] font-medium">{{ c.descricao }}</span>
+            <Icon v-if="String(store.cabecalho.carga) === String(c.codigo)" name="check" class="text-brand-700" :stroke="2.4" />
+          </button>
+        </li>
+      </ul>
+    </Sheet>
+
+    <Sheet :open="modal.open" title="Ajustar item" :subtitle="`${modal.codproduto}, ${modal.descricao}`" @close="modal.open = false">
+      <div class="space-y-4">
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block">
+            <span class="label">Quantidade</span>
+            <input v-model.number="modal.quantidade" type="number" inputmode="decimal" min="0" class="input" />
+          </label>
+          <label class="block">
+            <span class="label">Unidade</span>
+            <input v-model="modal.unidade" type="text" class="input" placeholder="Padrão" />
+          </label>
+          <label class="block">
+            <span class="label">Desc. incluso (%)</span>
+            <input v-model.number="modal.descinc" type="number" inputmode="decimal" min="0" class="input" />
+          </label>
+          <label class="block">
+            <span class="label">Fator</span>
+            <input :value="modalFator" type="text" class="input" disabled />
+          </label>
+        </div>
+        <div>
+          <span class="label">Desconto</span>
+          <div class="grid grid-cols-[1fr_9rem] gap-2">
+            <input v-model.number="modal.desconto" type="number" inputmode="decimal" min="0" class="input" aria-label="Valor do desconto" />
+            <Segmented
+              v-model="modal.descper"
+              :options="[{ value: 'N', label: 'R$' }, { value: 'S', label: '%' }]"
+              label="Tipo de desconto"
+            />
           </div>
         </div>
-      </div>
-    </div>
-    <div
-      v-if="showSucata"
-      class="fixed inset-0 z-40 flex items-end justify-center bg-black/50"
-      @click.self="showSucata = false"
-    >
-      <div class="w-full max-h-[90vh] overflow-auto rounded-t-2xl bg-white p-5">
-        <h2 class="text-lg font-bold text-ink-900 mb-3">Saldo Sucata</h2>
-        <EmptyState v-if="sucataRows.length === 0" label="Nenhum saldo de sucata" />
-        <div v-else class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
-            <thead class="text-ink-400 text-xs uppercase">
-              <tr>
-                <th class="py-2 pr-3">Referência</th>
-                <th class="py-2 pr-3 text-right">Saldo</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-ink-200">
-              <tr v-for="(r, i) in sucataRows" :key="i">
-                <td class="py-2 pr-3">{{ r.referencia }}</td>
-                <td class="py-2 pr-3 text-right">{{ formatReal(r.saldo) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <button class="w-full mt-4 py-2 text-sm font-semibold text-ink-600" @click="showSucata = false">Fechar</button>
-      </div>
-    </div>
 
-    <div
-      v-if="showSaldos"
-      class="fixed inset-0 z-40 flex items-end justify-center bg-black/50"
-      @click.self="showSaldos = false"
-    >
-      <div class="w-full max-h-[90vh] overflow-auto rounded-t-2xl bg-white p-5">
-        <h2 class="text-lg font-bold text-ink-900 mb-3">Saldos do Cliente</h2>
-        <EmptyState v-if="saldosRows.length === 0" label="Nenhum saldo" />
-        <div v-else class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
-            <thead class="text-ink-400 text-xs uppercase">
-              <tr>
-                <th class="py-2 pr-3">Conta</th>
-                <th class="py-2 pr-3 text-right">Quantidade</th>
-                <th class="py-2 pr-3 text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-ink-200">
-              <tr v-for="(r, i) in saldosRows" :key="i">
-                <td class="py-2 pr-3">{{ r.conta }}</td>
-                <td class="py-2 pr-3 text-right">{{ r.quan }}</td>
-                <td class="py-2 pr-3 text-right">{{ formatReal(r.total) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <button class="w-full mt-4 py-2 text-sm font-semibold text-ink-600" @click="showSaldos = false">Fechar</button>
+        <dl class="rounded-xl bg-ink-50 grid grid-cols-3 divide-x divide-ink-200 text-sm">
+          <div class="px-3 py-3"><dt class="meta text-xs">Valor base</dt><dd class="font-semibold tabular-nums">{{ formatReal(modalPreview.vlunbase) }}</dd></div>
+          <div class="px-3 py-3"><dt class="meta text-xs">Unitário</dt><dd class="font-semibold tabular-nums">{{ formatReal(modalPreview.vlunit) }}</dd></div>
+          <div class="px-3 py-3"><dt class="meta text-xs">Total</dt><dd class="font-semibold tabular-nums">{{ formatReal(modal.quantidade > 0 ? modalPreview.total : 0) }}</dd></div>
+        </dl>
       </div>
-    </div>
+      <template #footer>
+        <button class="btn btn-primary w-full" @click="gravarModal">Salvar item</button>
+      </template>
+    </Sheet>
+
+    <Sheet :open="showSucata" title="Saldo de sucata" :subtitle="cliente.fantasia" @close="showSucata = false">
+      <EmptyState v-if="sucataRows.length === 0" icon="info" label="Nenhum saldo de sucata" />
+      <table v-else class="data-table">
+        <thead>
+          <tr>
+            <th class="pl-0">Referência</th>
+            <th class="num pr-0">Saldo</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(r, i) in sucataRows" :key="i">
+            <td class="pl-0">{{ r.referencia }}</td>
+            <td class="num pr-0">{{ formatReal(r.saldo) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </Sheet>
+
+    <Sheet :open="showSaldos" title="Saldos do cliente" :subtitle="cliente.fantasia" @close="showSaldos = false">
+      <EmptyState v-if="saldosRows.length === 0" icon="info" label="Nenhum saldo" />
+      <table v-else class="data-table">
+        <thead>
+          <tr>
+            <th class="pl-0">Conta</th>
+            <th class="num">Quantidade</th>
+            <th class="num pr-0">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(r, i) in saldosRows" :key="i">
+            <td class="pl-0">{{ r.conta }}</td>
+            <td class="num">{{ r.quan }}</td>
+            <td class="num pr-0">{{ formatReal(r.total) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </Sheet>
   </AppShell>
 </template>

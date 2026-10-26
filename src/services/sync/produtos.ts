@@ -12,7 +12,9 @@ export async function syncProdutos(): Promise<void> {
   await pullPaged(300, async (offset) => {
     const doc = await call(`P_PRODWEB:EXEC("${lic()}","${user()}", 300, ${offset})`)
     const rows = rowChildren(doc, 'retorno')
-    if (rows.length === 0) return false
+    // Passado o último produto o servidor devolve `<retorno><result>false</result></retorno>`
+    // em vez de uma lista vazia; como no legado, linha sem código encerra a paginação.
+    if (rows.length === 0 || !childText(rows[0], 'codigo')) return false
     for (const r of rows) {
       const codigo = childText(r, 'codigo')
       await run(

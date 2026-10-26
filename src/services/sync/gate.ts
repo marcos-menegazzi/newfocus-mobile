@@ -27,11 +27,19 @@ export async function validaSync(): Promise<void> {
 
 export async function finalizeSync(): Promise<void> {
   const u = useAuthStore().usuario!
-  const doc = await call(`P_FLXWEB01:EXEC(${u.codlic},"${u.usuario}")`)
-  const saldo = childText(doc.getElementsByTagName('retorno')[0], 'saldo')
-  await run('UPDATE usuario SET saldoflex = ?', [saldo])
+  // Como no app legado, a data da sincronização é gravada antes do saldo:
+  // todas as etapas anteriores já foram concluídas.
   const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
   await run('UPDATE usuario SET data_sinc = ?, hora_sinc = ?', [
-    now.toISOString().slice(0, 10), now.toISOString().slice(11, 19),
+    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
   ])
+
+  const doc = await call(`P_FLXWEB01:EXEC(${u.codlic},"${u.usuario}")`)
+  const retorno = doc.getElementsByTagName('retorno')[0]
+  if (!retorno?.getElementsByTagName('saldo')[0]) {
+    throw new Error('Não foi possível obter o saldo flex. Aguarde um minuto e tente novamente.')
+  }
+  await run('UPDATE usuario SET saldoflex = ?', [childText(retorno, 'saldo')])
 }

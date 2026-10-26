@@ -27,4 +27,8 @@ describe('rowChildren / childText', () => {
     expect(childText(rows[0], 'nome')).toBe('João')
     expect(childText(rows[1], 'nome')).toBe('')
   })
+  it('returns empty when the parent element is missing', () => {
+    const empty = new DOMParser().parseFromString('<String/>', 'text/xml')
+    expect(childText(empty.getElementsByTagName('retorno')[0], 'saldo')).toBe('')
+  })
 })

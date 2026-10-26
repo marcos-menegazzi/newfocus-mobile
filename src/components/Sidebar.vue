@@ -1,85 +1,176 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
+import { computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import Icon from './Icon.vue'
+import Logo from './Logo.vue'
 import { useAuthStore } from '../stores/auth'
+import { useLastSync } from '../composables/useLastSync'
+import { useConfirm } from '../composables/useConfirm'
 
-defineProps<{ open: boolean }>()
+const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const auth = useAuthStore()
+const route = useRoute()
 const router = useRouter()
+const { lastSync } = useLastSync()
+const { confirmar } = useConfirm()
 
-const items = [
-  { name: 'home', label: 'Início', icon: 'M3 12l9-9 9 9M5 10v10h14V10' },
-  { name: 'clientes', label: 'Clientes', icon: 'M17 20h5v-2a4 4 0 00-5-4H7a4 4 0 00-4 4v2M9 12a4 4 0 100-8 4 4 0 000 8zM23 12a4 4 0 100-8 4 4 0 000 8z' },
-  { name: 'produtos', label: 'Produtos', icon: 'M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16zM3.27 6.96L12 12.01l8.73-5.05' },
-  { name: 'pedidos', label: 'Pedidos', icon: 'M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11' },
-  { name: 'agenda', label: 'Agenda', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
-  { name: 'metas', label: 'Metas', icon: 'M12 22a10 10 0 100-20 10 10 0 000 20zM12 18a6 6 0 100-12 6 6 0 000 12zM12 14a2 2 0 100-4 2 2 0 000 4z' },
-  { name: 'os', label: 'OS', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' },
-  { name: 'historico-vendas', label: 'Histórico de Vendas', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' },
-  { name: 'config', label: 'Configuração', icon: 'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z' },
+interface Item { name: string; label: string; icon: string; match?: string[] }
+
+type Group = { label: string; items: Item[] }
+
+const vendas: Group[] = [
+  {
+    label: 'Vendas',
+    items: [
+      { name: 'home', label: 'Início', icon: 'home' },
+      { name: 'pedido-novo', label: 'Novo pedido', icon: 'cart' },
+      { name: 'pedidos', label: 'Pedidos', icon: 'orders', match: ['pedido-edit'] },
+      { name: 'clientes', label: 'Clientes', icon: 'users', match: ['cliente-novo', 'cliente-edit', 'titulos', 'titulo'] },
+      { name: 'produtos', label: 'Produtos', icon: 'package', match: ['produto'] },
+      { name: 'historico-vendas', label: 'Histórico de vendas', icon: 'chart', match: ['venda'] },
+      { name: 'metas', label: 'Metas', icon: 'target' },
+    ],
+  },
+  {
+    label: 'Campo',
+    items: [{ name: 'agenda', label: 'Agenda de visitas', icon: 'calendar' }],
+  },
+  {
+    label: 'Sistema',
+    items: [
+      { name: 'sync', label: 'Sincronizar', icon: 'sync' },
+      { name: 'config', label: 'Configuração', icon: 'settings' },
+    ],
+  },
 ]
+
+const ordemServico: Group[] = [
+  {
+    label: 'Ordem de serviço',
+    items: [
+      { name: 'os', label: 'Visão geral', icon: 'home' },
+      { name: 'os-despesas', label: 'Despesas', icon: 'receipt' },
+      { name: 'os-diario', label: 'Diário de obra', icon: 'clock' },
+      { name: 'os-historico', label: 'Histórico', icon: 'orders' },
+    ],
+  },
+  {
+    label: 'Sistema',
+    items: [{ name: 'config', label: 'Configuração', icon: 'settings' }],
+  },
+]
+
+const groups = computed(() => (auth.isOs ? ordemServico : vendas))
+
+const current = computed(() => String(route.name ?? ''))
+
+function isActive(item: Item): boolean {
+  return current.value === item.name || !!item.match?.includes(current.value)
+}
+
+function onKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') emit('close')
+}
+
+watch(
+  () => props.open,
+  (v) => {
+    if (v) window.addEventListener('keydown', onKey)
+    else window.removeEventListener('keydown', onKey)
+  },
+)
 
 async function go(name: string) {
   emit('close')
-  await router.push({ name })
+  if (current.value !== name) await router.push({ name })
 }
 
 async function logout() {
+  emit('close')
+  const ok = await confirmar({
+    title: 'Sair da conta?',
+    message: 'Para entrar de novo, você vai precisar do servidor, do usuário e da senha.',
+    confirmLabel: 'Sair',
+    danger: true,
+  })
+  if (!ok) return
   await auth.logout()
   await router.push({ name: 'login' })
 }
 </script>
 
 <template>
-  <div class="sidebar" :class="{ open }">
-    <div class="safe-top px-5 pt-6 pb-4 border-b border-navy-700">
+  <Transition name="fade">
+    <div v-if="open" class="fixed inset-0 z-30 bg-ink-900/40" @click="emit('close')" />
+  </Transition>
+
+  <aside class="sidebar" :class="{ open }" :aria-hidden="!open" aria-label="Menu principal">
+    <div class="safe-top [--pad-top:1.5rem] px-5 pb-4 border-b border-ink-100">
       <div class="flex items-center gap-3">
-        <div class="h-10 w-10 rounded-xl bg-accent-500 flex items-center justify-center text-navy-950 font-extrabold">N</div>
-        <div>
-          <p class="text-white font-semibold">NewFocus</p>
-          <p class="text-ink-400 text-xs">{{ auth.usuario?.usuario }}</p>
+        <Logo :height="44" />
+        <div class="min-w-0">
+          <p class="font-semibold leading-tight">NewFocus</p>
+          <p class="text-ink-500 text-[13px] truncate">{{ auth.usuario?.usuario }}</p>
         </div>
       </div>
+      <p v-if="!auth.isOs" class="mt-3 flex items-center gap-1.5 text-xs text-ink-500">
+        <Icon name="sync" :size="14" />
+        Sincronizado em {{ lastSync }}
+      </p>
     </div>
 
-    <nav class="px-3 py-4 space-y-1">
-      <button
-        v-for="item in items"
-        :key="item.name"
-        class="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-left text-ink-200 hover:bg-navy-700"
-        @click="go(item.name)"
-      >
-        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" :d="item.icon" />
-        </svg>
-        {{ item.label }}
-      </button>
+    <nav class="flex-1 overflow-y-auto px-3 py-3">
+      <div v-for="g in groups" :key="g.label" class="mb-3">
+        <p class="px-3 pt-2 pb-1 text-xs font-medium text-ink-400">{{ g.label }}</p>
+        <button
+          v-for="item in g.items"
+          :key="item.name"
+          class="w-full flex items-center gap-3 rounded-xl px-3 h-11 text-left text-[15px] transition-colors"
+          :class="isActive(item) ? 'bg-brand-50 text-brand-700 font-semibold' : 'text-ink-700 active:bg-ink-100'"
+          :aria-current="isActive(item) ? 'page' : undefined"
+          :tabindex="open ? 0 : -1"
+          @click="go(item.name)"
+        >
+          <Icon :name="item.icon" />
+          {{ item.label }}
+        </button>
+      </div>
     </nav>
 
-    <div class="mt-auto px-3 pb-6 safe-bottom">
-      <button class="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-left text-red-400 hover:bg-navy-700" @click="logout">
-        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-        </svg>
+    <div class="px-3 pt-2 border-t border-ink-100 safe-bottom [--pad-bottom:1rem]">
+      <button
+        class="w-full flex items-center gap-3 rounded-xl px-3 h-11 text-left text-[15px] text-danger-700 active:bg-danger-100"
+        :tabindex="open ? 0 : -1"
+        @click="logout"
+      >
+        <Icon name="logout" />
         Sair
       </button>
     </div>
-  </div>
+  </aside>
 </template>
 
 <style scoped>
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;
-  width: 280px;
-  max-width: 82vw;
-  background: var(--color-navy-900);
+  width: 296px;
+  max-width: 84vw;
+  background: var(--color-surface);
   display: flex;
   flex-direction: column;
   transform: translateX(-100%);
-  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  visibility: hidden;
+  transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0.26s;
   z-index: 40;
 }
-.sidebar.open { transform: translateX(0); }
+.sidebar.open {
+  transform: translateX(0);
+  visibility: visible;
+  transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s;
+}
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

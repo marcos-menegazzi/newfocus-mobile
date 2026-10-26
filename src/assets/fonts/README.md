@@ -1,3 +1,3 @@
-Inter is loaded via a `<link>` in index.html (Google Fonts). Offline devices fall
-back to system-ui. To bundle offline, drop Inter .woff2 files here and add a
-@font-face in style.css.
+Instrument Sans (variable, weight 400–700 and width 75–100%) is bundled via
+`@fontsource-variable/instrument-sans` and imported in `src/style.css`, so it
+works offline on device. No network font loading.

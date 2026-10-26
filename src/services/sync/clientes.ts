@@ -1,5 +1,5 @@
 import { call } from './context'
-import { childText, rowChildren, removechar, trocachar } from './helpers'
+import { childText, rowChildren, removechar, tag, trocachar } from './helpers'
 import { clearTables, pullPaged } from './pull'
 import { run, query } from '../../db/connection'
 import { useAuthStore } from '../../stores/auth'
@@ -8,19 +8,26 @@ const lic = () => useAuthStore().usuario!.codlic
 const user = () => useAuthStore().usuario!.usuario
 const versao = () => useAuthStore().usuario!.versao
 
+// Mesma ordem e mesmos tratamentos do sincronizar.html legado.
 const CLIENTE_FIELDS = [
   'razao','fantasia','bairro','cep','estado','cidade','cj','contato','ddd','email',
   'endereco','fax','inscricao','numero','tel1','cnpj','emailnfe','simples','tippess',
   'obs','codigo','final','regiao',
 ]
+const SANITIZE = new Set(['razao', 'fantasia', 'obs'])
+
+export function clientesPayload(rows: any[]): string {
+  return '[clientes]' + rows.map((c) =>
+    '[cliente]' +
+    CLIENTE_FIELDS.map((f) => tag(f, SANITIZE.has(f) ? removechar(c[f]) : c[f])).join('') +
+    '[/cliente]'
+  ).join('') + '[/clientes]'
+}
 
 export async function pushClientes(): Promise<void> {
   const rows = await query<any>('SELECT * FROM clifor WHERE enviado IS NULL OR enviado <> ?', ['S'])
   if (rows.length === 0) return
-  const xml = '<clientes>' + rows.map((c) =>
-    '<cliente>' + CLIENTE_FIELDS.map((f) => `<${f}>${removechar(c[f])}</${f}>`).join('') + '</cliente>'
-  ).join('') + '</clientes>'
-  const doc = await call(`P_CLIWEB:EXEC("${lic()}","${user()}", "${xml}")`)
+  const doc = await call(`P_CLIWEB:EXEC("${lic()}","${user()}", "${clientesPayload(rows)}")`)
   for (const r of rowChildren(doc, 'clientes')) {
     await run('UPDATE clifor SET codigo = ?, enviado = ? WHERE cnpj = ?', [
       childText(r, 'codigo'), 'S', childText(r, 'cnpj'),
@@ -39,7 +46,7 @@ export async function pullClientes(): Promise<void> {
       const s = (t: string) => trocachar(childText(r, t))
       await run(
         `INSERT INTO clifor(fantasia,razao,bairro,cep,cidade,cj,contato,ddd,email,endereco,estado,fax,inscricao,numero,tel1,cnpj,emailnfe,simples,tippess,obs,enviado,codigo,inativo,tabela,saldo,limcred,credito,comissao,final,regiao)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'S',?,?,?,?,?,?,?,?,?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'S',?,?,?,?,?,?,?,?,?)`,
         [
           s('fantasia'), s('razao'), s('bairro'), s('cep'), s('cidade'), s('cj'), s('contato'),
           s('ddd'), s('email'), s('endereco'), s('estado'), s('fax'), s('inscricao'), s('numero'),

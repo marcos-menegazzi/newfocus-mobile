@@ -3,7 +3,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
-import ScreenHeader from '../components/ScreenHeader.vue'
 import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
 import { useToast } from '../composables/useToast'
@@ -45,35 +44,35 @@ onMounted(async () => {
 </script>
 
 <template>
-  <AppShell>
-    <div class="p-6">
-      <ScreenHeader :title="titulo ? `Título ${titulo.numero}` : 'Título'" />
-
-      <EmptyState v-if="!titulo" label="Título não encontrado" />
-      <section v-else class="bg-white rounded-card shadow-card p-5">
-        <div class="grid grid-cols-1 gap-3">
-          <div>
-            <span class="text-ink-600 text-xs font-medium">Emissão</span>
-            <p class="text-sm text-ink-900">{{ mudadata(titulo.emissao) }}</p>
+  <AppShell :title="titulo ? `Título ${titulo.numero}` : 'Título'" back>
+    <div class="page">
+      <div v-if="!titulo" class="panel">
+        <EmptyState icon="receipt" label="Título não encontrado" />
+      </div>
+      <template v-else>
+        <section class="panel px-4 py-4">
+          <p class="meta">Valor</p>
+          <p class="mt-1 flex items-baseline gap-1">
+            <span class="text-sm text-ink-500">R$</span>
+            <span class="figure text-[36px]">{{ formatReal(titulo.valor) }}</span>
+          </p>
+          <p class="meta mt-1.5">Vence em {{ mudadata(titulo.vencimento) }}</p>
+        </section>
+        <dl class="list">
+          <div class="flex justify-between gap-4 px-4 py-3.5">
+            <dt class="text-ink-500">Emissão</dt>
+            <dd class="font-medium tabular-nums">{{ mudadata(titulo.emissao) }}</dd>
           </div>
-          <div>
-            <span class="text-ink-600 text-xs font-medium">Cobrança</span>
-            <p class="text-sm text-ink-900">{{ titulo.cobranca }}</p>
+          <div class="flex justify-between gap-4 px-4 py-3.5">
+            <dt class="text-ink-500">Cobrança</dt>
+            <dd class="font-medium text-right">{{ titulo.cobranca }}</dd>
           </div>
-          <div>
-            <span class="text-ink-600 text-xs font-medium">Vencimento</span>
-            <p class="text-sm text-ink-900">{{ mudadata(titulo.vencimento) }}</p>
+          <div class="px-4 py-3.5">
+            <dt class="text-ink-500">Observação</dt>
+            <dd class="mt-1 whitespace-pre-wrap">{{ titulo.obs || 'Sem observação' }}</dd>
           </div>
-          <div>
-            <span class="text-ink-600 text-xs font-medium">Valor</span>
-            <p class="text-sm text-ink-900">{{ formatReal(titulo.valor) }}</p>
-          </div>
-          <div>
-            <span class="text-ink-600 text-xs font-medium">Observação</span>
-            <p class="text-sm text-ink-900">{{ titulo.obs || '—' }}</p>
-          </div>
-        </div>
-      </section>
+        </dl>
+      </template>
     </div>
   </AppShell>
 </template>

@@ -17,6 +17,6 @@ app.mount('#app')
 
 if (Capacitor.isNativePlatform()) {
   StatusBar.setStyle({ style: Style.Light })
-  StatusBar.setBackgroundColor({ color: '#0B1220' })
+  StatusBar.setBackgroundColor({ color: '#f5f7fa' })
   SplashScreen.hide()
 }

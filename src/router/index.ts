@@ -4,7 +4,8 @@ import { useAuthStore } from '../stores/auth'
 const routes = [
   { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
   { path: '/', name: 'home', component: () => import('../views/HomeView.vue') },
-  { path: '/config', name: 'config', component: () => import('../views/ConfigView.vue') },
+  { path: '/config', name: 'config', component: () => import('../views/ConfigView.vue'), meta: { shared: true } },
+  { path: '/sincronizar', name: 'sync', component: () => import('../views/SyncView.vue') },
   { path: '/clientes', name: 'clientes', component: () => import('../views/ConsultaClientesView.vue') },
   { path: '/clientes/novo', name: 'cliente-novo', component: () => import('../views/CadastroClienteView.vue') },
   { path: '/clientes/:idcliente', name: 'cliente-edit', component: () => import('../views/CadastroClienteView.vue') },
@@ -19,10 +20,10 @@ const routes = [
   { path: '/historico-vendas', name: 'historico-vendas', component: () => import('../views/HistoricoVendasView.vue') },
   { path: '/agenda', name: 'agenda', component: () => import('../views/AgendaView.vue') },
   { path: '/metas', name: 'metas', component: () => import('../views/MetasView.vue') },
-  { path: '/os', name: 'os', component: () => import('../views/OsView.vue') },
-  { path: '/os/despesas', name: 'os-despesas', component: () => import('../views/DespesasView.vue') },
-  { path: '/os/diario', name: 'os-diario', component: () => import('../views/DiarioView.vue') },
-  { path: '/os/historico', name: 'os-historico', component: () => import('../views/OsHistoricoView.vue') },
+  { path: '/os', name: 'os', component: () => import('../views/OsView.vue'), meta: { os: true } },
+  { path: '/os/despesas', name: 'os-despesas', component: () => import('../views/DespesasView.vue'), meta: { os: true } },
+  { path: '/os/diario', name: 'os-diario', component: () => import('../views/DiarioView.vue'), meta: { os: true } },
+  { path: '/os/historico', name: 'os-historico', component: () => import('../views/OsHistoricoView.vue'), meta: { os: true } },
 ]
 
 const router = createRouter({
@@ -36,7 +37,10 @@ router.beforeEach(async (to) => {
     const ok = await auth.loadSession()
     if (!ok && to.name !== 'login') return { name: 'login' }
   }
-  if (to.name === 'login' && auth.loggedIn) return { name: 'home' }
+  if (!auth.loggedIn || to.meta.shared) return true
+  if (to.name === 'login') return { name: auth.homeRoute }
+  // Usuário de OS só acessa as telas de OS; o de pedidos não acessa as de OS.
+  if (!!to.meta.os !== auth.isOs) return { name: auth.homeRoute }
   return true
 })
 

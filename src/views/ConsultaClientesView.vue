@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useFilters } from '../composables/useFilters'
 import { RouterLink } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
-import ScreenHeader from '../components/ScreenHeader.vue'
+import LoadingState from '../components/LoadingState.vue'
+import FilterButton from '../components/FilterButton.vue'
+import FilterChips, { type Chip } from '../components/FilterChips.vue'
+import Icon from '../components/Icon.vue'
+import SelectField from '../components/SelectField.vue'
+import SearchField from '../components/SearchField.vue'
+import Segmented from '../components/Segmented.vue'
+import Sheet from '../components/Sheet.vue'
 import { query } from '../db/connection'
 import { call } from '../services/sync/context'
 import { childText, rowChildren } from '../services/sync/helpers'
@@ -21,9 +29,25 @@ const COLUMNS: Record<string, string> = {
   estado: 'c.estado',
 }
 
+const COL_OPTIONS = [
+  { value: 'fantasia', label: 'Nome fantasia' },
+  { value: 'razao', label: 'Razão social' },
+  { value: 'codigo', label: 'Código' },
+  { value: 'cnpj', label: 'CNPJ/CPF' },
+  { value: 'cidade', label: 'Cidade' },
+  { value: 'estado', label: 'Estado (UF)' },
+]
+
+const POSITIVADO_OPTIONS = [
+  { value: 'todos', label: 'Todos' },
+  { value: 'positivados', label: 'Positivados' },
+  { value: 'nao', label: 'Não positivados' },
+]
+
 const BASE = `SELECT c.*, (SELECT COUNT(*) FROM HISTVENDA H INNER JOIN HISTITENS I ON H.LANCTO = I.LANCTO WHERE H.DATA BETWEEN ? AND ? AND I.FATURAMENTO = 'S' AND H.CLIFOR = c.CODIGO) AS positivado FROM clifor c`
 
 interface ClienteRow {
+  clifor: number
   codigo: number
   fantasia: string
   tel1: string
@@ -45,12 +69,26 @@ interface GarantiaRow {
 const auth = useAuthStore()
 const { notify } = useToast()
 
-const col = ref('fantasia')
-const positivado = ref('todos')
+const DEFAULTS = { col: 'fantasia', positivado: 'todos' }
+const { filtros, draft, show: showFiltros, abrir: abrirFiltros, aplicar: aplicarFiltros, limpar: limparFiltros, remover: removerFiltro } =
+  useFilters(DEFAULTS, () => buscar())
+
 const search = ref('')
 const clientes = ref<ClienteRow[]>([])
 const loading = ref(false)
 const searched = ref(false)
+
+const colLabel = (v: string) => COL_OPTIONS.find((o) => o.value === v)?.label ?? v
+const placeholder = computed(() => `Buscar por ${colLabel(filtros.col).toLowerCase()}`)
+
+const chips = computed<Chip[]>(() => {
+  const c: Chip[] = []
+  if (filtros.col !== DEFAULTS.col) c.push({ key: 'col', label: `Em: ${colLabel(filtros.col)}` })
+  if (filtros.positivado !== DEFAULTS.positivado) {
+    c.push({ key: 'positivado', label: POSITIVADO_OPTIONS.find((o) => o.value === filtros.positivado)!.label })
+  }
+  return c
+})
 
 function monthBounds(): [string, string] {
   const now = new Date()
@@ -67,12 +105,12 @@ async function buscar() {
     const params: unknown[] = [start, end]
     const term = search.value.trim()
     if (term) {
-      sql += ` WHERE ${COLUMNS[col.value]} LIKE ?`
+      sql += ` WHERE ${COLUMNS[filtros.col]} LIKE ?`
       params.push(`%${term}%`)
     }
-    if (positivado.value === 'positivados') {
+    if (filtros.positivado === 'positivados') {
       sql = `SELECT * FROM (${sql}) q WHERE q.positivado > 0`
-    } else if (positivado.value === 'nao') {
+    } else if (filtros.positivado === 'nao') {
       sql = `SELECT * FROM (${sql}) q WHERE q.positivado = 0`
     }
     clientes.value = await query<ClienteRow>(sql, params)
@@ -89,162 +127,170 @@ onMounted(buscar)
 async function extrato(c: ClienteRow) {
   const u = auth.usuario
   if (!u) return
-  const doc = await call(`P_EXTWEB:EXEC("${c.codigo}","${u.codlic}")`)
-  if (text(doc, 'status') !== 'Ok') {
-    notify('Não foi possível gerar o extrato.', 'error')
-    return
+  try {
+    const doc = await call(`P_EXTWEB:EXEC("${c.codigo}","${u.codlic}")`)
+    if (text(doc, 'status') !== 'Ok') {
+      notify('Não foi possível gerar o extrato.', 'error')
+      return
+    }
+    const arquivo = text(doc, 'arquivo')
+    await openPdf(pdfUrl(`relatorio/li${u.codlic}/${arquivo}`))
+  } catch (e) {
+    notify(e instanceof Error ? e.message : 'Não foi possível gerar o extrato.', 'error')
   }
-  const arquivo = text(doc, 'arquivo')
-  await openPdf(pdfUrl(`relatorio/li${u.codlic}/${arquivo}`))
 }
 
 const garantias = ref(false)
 const gClient = ref<ClienteRow | null>(null)
 const g = reactive({ dtInicial: '', dtFinal: '', disposicao: '', resolvido: '' })
 const gRows = ref<GarantiaRow[]>([])
+const gLoading = ref(false)
+const gSearched = ref(false)
 
 function abrirGarantias(c: ClienteRow) {
   gClient.value = c
   Object.assign(g, { dtInicial: '', dtFinal: '', disposicao: '', resolvido: '' })
   gRows.value = []
+  gSearched.value = false
   garantias.value = true
 }
 
 async function buscarGarantias() {
   if (!gClient.value) return
   const c = gClient.value
-  const doc = await call(
-    `P_GTWEB:EXEC(${c.codigo}, '${g.dtInicial}', '${g.dtFinal}', '${g.disposicao}', '${g.resolvido}')`,
-  )
-  gRows.value = rowChildren(doc, 'retorno').map((el) => ({
-    codigo: childText(el, 'codigo'),
-    produto: childText(el, 'produto'),
-    nota: childText(el, 'nota'),
-    disposicao: childText(el, 'disposicao'),
-    defeito_in: childText(el, 'defeito_in'),
-    defeito_ex: childText(el, 'defeito_ex'),
-    obs: childText(el, 'obs'),
-  }))
+  gLoading.value = true
+  try {
+    const doc = await call(
+      `P_GTWEB:EXEC(${c.codigo}, '${g.dtInicial}', '${g.dtFinal}', '${g.disposicao}', '${g.resolvido}')`,
+    )
+    gRows.value = rowChildren(doc, 'retorno').map((el) => ({
+      codigo: childText(el, 'codigo'),
+      produto: childText(el, 'produto'),
+      nota: childText(el, 'nota'),
+      disposicao: childText(el, 'disposicao'),
+      defeito_in: childText(el, 'defeito_in'),
+      defeito_ex: childText(el, 'defeito_ex'),
+      obs: childText(el, 'obs'),
+    }))
+    gSearched.value = true
+  } catch (e) {
+    notify(e instanceof Error ? e.message : 'Não foi possível buscar as garantias', 'error')
+  } finally {
+    gLoading.value = false
+  }
 }
 </script>
 
 <template>
-  <AppShell>
-    <div class="p-6">
-      <div class="flex items-center justify-between gap-3">
-        <ScreenHeader title="Clientes" :back="false" />
-        <RouterLink
-          :to="{ name: 'cliente-novo' }"
-          class="rounded-xl bg-accent-500 text-navy-950 font-semibold px-3 py-1.5 text-sm"
-        >Novo Cliente</RouterLink>
+  <AppShell title="Clientes" :subtitle="searched ? `${clientes.length} encontrados` : undefined">
+    <template #actions>
+      <FilterButton :count="chips.length" class="mr-1" @click="abrirFiltros" />
+      <RouterLink :to="{ name: 'cliente-novo' }" class="icon-btn text-brand-700" aria-label="Novo cliente">
+        <Icon name="user-plus" :size="22" />
+      </RouterLink>
+    </template>
+
+    <div class="page">
+      <div class="space-y-3">
+        <SearchField v-model="search" :placeholder="placeholder" @submit="buscar" />
+        <FilterChips :items="chips" @remove="removerFiltro" @open="abrirFiltros" />
       </div>
 
-      <div class="grid grid-cols-2 gap-3 mb-3">
-        <select v-model="col" class="input">
-          <option value="fantasia">Fantasia</option>
-          <option value="razao">Razão</option>
-          <option value="codigo">Código</option>
-          <option value="cnpj">CNPJ</option>
-          <option value="cidade">Cidade</option>
-          <option value="estado">Estado</option>
-        </select>
-        <select v-model="positivado" class="input">
-          <option value="todos">Todos</option>
-          <option value="positivados">Positivados</option>
-          <option value="nao">Não positivados</option>
-        </select>
+      <LoadingState v-if="loading && !searched" />
+      <div v-else-if="searched && clientes.length === 0" class="panel">
+        <EmptyState icon="users" label="Nenhum cliente encontrado" hint="Tente outro termo ou ajuste os filtros." />
       </div>
-      <div class="flex gap-2 mb-4">
-        <input
-          v-model="search"
-          class="input flex-1"
-          type="text"
-          placeholder="Buscar..."
-          @keyup.enter="buscar"
-        />
-        <button class="btn-primary shrink-0 px-6" :disabled="loading" @click="buscar">Buscar</button>
-      </div>
-
-      <EmptyState v-if="searched && clientes.length === 0" label="Nenhum cliente encontrado" />
-      <ul v-else class="divide-y divide-ink-200 bg-white rounded-card shadow-card overflow-hidden">
-        <li v-for="c in clientes" :key="c.codigo" class="px-4 py-3">
-          <div class="flex items-start justify-between gap-3">
-            <RouterLink :to="`/clientes/${c.codigo}`" class="min-w-0">
-              <p class="text-sm font-medium text-ink-900 truncate">{{ c.fantasia }}</p>
-              <p class="text-xs text-ink-400 truncate">{{ c.tel1 }}</p>
-              <p class="text-xs text-ink-400 truncate">{{ c.cidade }} / {{ c.estado }}</p>
-            </RouterLink>
+      <ul v-else class="list" :class="{ 'opacity-60': loading }">
+        <li v-for="c in clientes" :key="c.codigo" class="px-4 pt-3.5 pb-3">
+          <RouterLink :to="`/clientes/${c.clifor}`" class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-[15px] font-semibold truncate">{{ c.fantasia }}</p>
+              <p class="meta truncate mt-0.5">{{ c.cidade }}{{ c.estado ? ` / ${c.estado}` : '' }}</p>
+              <p v-if="c.tel1" class="meta truncate flex items-center gap-1.5 mt-0.5">
+                <Icon name="phone" :size="14" /> {{ c.tel1 }}
+              </p>
+            </div>
             <span
-              class="inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
-              :class="c.positivado > 0 ? 'bg-[#22C55E] text-white' : 'bg-ink-200 text-ink-600'"
-            >{{ c.positivado > 0 ? 'Positivado' : 'Não' }}</span>
-          </div>
-          <div class="flex gap-2 mt-2">
-            <RouterLink :to="`/titulos/${c.codigo}`" class="text-xs font-semibold text-accent-600">Títulos</RouterLink>
-            <button class="text-xs font-semibold text-accent-600" @click="extrato(c)">Extrato</button>
-            <button class="text-xs font-semibold text-accent-600" @click="abrirGarantias(c)">Garantias</button>
+              v-if="c.positivado > 0"
+              class="inline-flex shrink-0 items-center gap-1 rounded-full bg-success-50 text-success-800 pl-1.5 pr-2.5 h-6 text-xs font-semibold"
+            >
+              <Icon name="check" :size="14" :stroke="2.4" /> Positivado
+            </span>
+          </RouterLink>
+          <div class="flex gap-2 mt-3">
+            <RouterLink :to="{ path: `/titulos/${c.codigo}`, query: { fantasia: c.fantasia } }" class="btn btn-tonal btn-sm">
+              <Icon name="receipt" :size="16" /> Títulos
+            </RouterLink>
+            <button class="btn btn-tonal btn-sm" @click="extrato(c)">
+              <Icon name="file" :size="16" /> Extrato
+            </button>
+            <button class="btn btn-tonal btn-sm" @click="abrirGarantias(c)">
+              <Icon name="shield" :size="16" /> Garantias
+            </button>
           </div>
         </li>
       </ul>
     </div>
 
-    <div
-      v-if="garantias"
-      class="fixed inset-0 z-40 flex items-end justify-center bg-black/50"
-      @click.self="garantias = false"
-    >
-      <div class="w-full max-h-[90vh] overflow-auto rounded-t-2xl bg-white p-5">
-        <h2 class="text-lg font-bold text-ink-900 mb-3">Garantias — {{ gClient?.fantasia }}</h2>
-        <div class="grid grid-cols-2 gap-3 mb-3">
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Data inicial</span>
-            <input v-model="g.dtInicial" type="date" class="input" />
-          </label>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Data final</span>
-            <input v-model="g.dtFinal" type="date" class="input" />
-          </label>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Disposição</span>
-            <input v-model="g.disposicao" type="text" class="input" />
-          </label>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Resolvido</span>
-            <input v-model="g.resolvido" type="text" class="input" />
-          </label>
+    <Sheet :open="showFiltros" title="Filtrar clientes" @close="showFiltros = false">
+      <div class="space-y-5">
+        <label class="block">
+          <span class="label">Buscar em</span>
+          <SelectField v-model="draft.col" :options="COL_OPTIONS" title="Buscar em" />
+        </label>
+        <div>
+          <span class="label">Positivação no mês</span>
+          <Segmented v-model="draft.positivado" :options="POSITIVADO_OPTIONS" label="Positivação no mês" />
         </div>
-        <button class="btn-primary w-full mb-4" @click="buscarGarantias">Buscar</button>
-
-        <EmptyState v-if="gRows.length === 0" label="Nenhuma garantia" />
-        <div v-else class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
-            <thead class="text-ink-400 text-xs uppercase">
-              <tr>
-                <th class="py-2 pr-3">Código</th>
-                <th class="py-2 pr-3">Produto</th>
-                <th class="py-2 pr-3">Nota</th>
-                <th class="py-2 pr-3">Disposição</th>
-                <th class="py-2 pr-3">Def. entrada</th>
-                <th class="py-2 pr-3">Def. saída</th>
-                <th class="py-2">Obs</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-ink-200">
-              <tr v-for="(r, i) in gRows" :key="i" class="align-top">
-                <td class="py-2 pr-3">{{ r.codigo }}</td>
-                <td class="py-2 pr-3">{{ r.produto }}</td>
-                <td class="py-2 pr-3">{{ r.nota }}</td>
-                <td class="py-2 pr-3">{{ r.disposicao }}</td>
-                <td class="py-2 pr-3">{{ r.defeito_in }}</td>
-                <td class="py-2 pr-3">{{ r.defeito_ex }}</td>
-                <td class="py-2">{{ r.obs }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <button class="w-full mt-4 py-2 text-sm font-semibold text-ink-600" @click="garantias = false">Fechar</button>
       </div>
-    </div>
+      <template #footer>
+        <div class="flex gap-2">
+          <button class="btn btn-ghost" @click="limparFiltros">Limpar</button>
+          <button class="btn btn-primary flex-1" @click="aplicarFiltros">Aplicar filtros</button>
+        </div>
+      </template>
+    </Sheet>
+
+    <Sheet :open="garantias" title="Garantias" :subtitle="gClient?.fantasia" size="tall" @close="garantias = false">
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block">
+          <span class="label">De</span>
+          <input v-model="g.dtInicial" type="date" class="input" />
+        </label>
+        <label class="block">
+          <span class="label">Até</span>
+          <input v-model="g.dtFinal" type="date" class="input" />
+        </label>
+        <label class="block">
+          <span class="label">Disposição</span>
+          <input v-model="g.disposicao" type="text" class="input" />
+        </label>
+        <label class="block">
+          <span class="label">Resolvido</span>
+          <input v-model="g.resolvido" type="text" class="input" />
+        </label>
+      </div>
+      <button class="btn btn-primary w-full mt-4" :disabled="gLoading" @click="buscarGarantias">
+        {{ gLoading ? 'Buscando…' : 'Buscar garantias' }}
+      </button>
+
+      <LoadingState v-if="gLoading" />
+      <EmptyState v-else-if="gSearched && gRows.length === 0" icon="shield" label="Nenhuma garantia no período" />
+      <ul v-else-if="gRows.length" class="mt-5 space-y-3">
+        <li v-for="(r, i) in gRows" :key="i" class="rounded-xl border border-ink-200 p-4">
+          <div class="flex items-start justify-between gap-3">
+            <p class="text-[15px] font-semibold">{{ r.produto }}</p>
+            <span class="meta tabular-nums shrink-0">#{{ r.codigo }}</span>
+          </div>
+          <dl class="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+            <div><dt class="meta">Nota</dt><dd>{{ r.nota || '—' }}</dd></div>
+            <div><dt class="meta">Disposição</dt><dd>{{ r.disposicao || '—' }}</dd></div>
+            <div><dt class="meta">Defeito na entrada</dt><dd>{{ r.defeito_in || '—' }}</dd></div>
+            <div><dt class="meta">Defeito na saída</dt><dd>{{ r.defeito_ex || '—' }}</dd></div>
+            <div v-if="r.obs" class="col-span-2"><dt class="meta">Observação</dt><dd>{{ r.obs }}</dd></div>
+          </dl>
+        </li>
+      </ul>
+    </Sheet>
   </AppShell>
 </template>

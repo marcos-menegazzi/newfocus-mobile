@@ -118,7 +118,12 @@ export async function temTitulos(clifor: number): Promise<boolean> {
 }
 
 async function posicao(): Promise<{ latitude: number; longitude: number }> {
-  const pos = await Geolocation.getCurrentPosition()
+  let pos
+  try {
+    pos = await Geolocation.getCurrentPosition()
+  } catch {
+    throw new Error('Não foi possível obter a localização. Verifique se o GPS está ligado e se o app tem permissão de localização.')
+  }
   return { latitude: pos.coords.latitude, longitude: pos.coords.longitude }
 }
 

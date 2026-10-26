@@ -1,26 +1,51 @@
 @import "tailwindcss";
+@import "@fontsource-variable/instrument-sans/wdth.css";
 
 @theme {
-  --color-navy-950: #060a12;
-  --color-navy-900: #0b1220;
-  --color-navy-800: #111c30;
-  --color-navy-700: #1a2a45;
-  --color-navy-600: #243a5e;
+  --color-mist: #f5f7fa;
+  --color-surface: #ffffff;
 
-  --color-accent-300: #67e8f9;
-  --color-accent-400: #22d3ee;
-  --color-accent-500: #0ea5e9;
-  --color-accent-600: #0284c7;
-
+  /* Slate frio */
   --color-ink-900: #0f172a;
-  --color-ink-600: #475569;
-  --color-ink-400: #94a3b8;
+  --color-ink-700: #334155;
+  --color-ink-500: #526077;
+  --color-ink-400: #8391a7;
   --color-ink-200: #e2e8f0;
+  --color-ink-100: #eef1f5;
+  --color-ink-50: #f7f9fb;
 
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* Azul cobalto */
+  --color-brand-50: #eaf0ff;
+  --color-brand-100: #dce6ff;
+  --color-brand-200: #b9ccff;
+  --color-brand-300: #8fb0ff;
+  --color-brand-600: #2553e6;
+  --color-brand-700: #1b3fb8;
+  --color-brand-800: #15318f;
+  --color-brand-900: #0f2466;
 
-  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.06), 0 8px 24px rgb(15 23 42 / 0.08);
-  --radius-card: 1rem;
+  --color-success-50: #e7f7ec;
+  --color-success-100: #ccefd8;
+  --color-success-300: #86efac;
+  --color-success-600: #15803d;
+  --color-success-800: #166534;
+
+  --color-sun-100: #fef3c7;
+  --color-sun-400: #f59e0b;
+  --color-sun-800: #92400e;
+
+  --color-info-100: #e0f2fe;
+  --color-info-600: #0284c7;
+  --color-info-800: #075985;
+
+  --color-danger-100: #fee2e2;
+  --color-danger-600: #dc2626;
+  --color-danger-700: #b91c1c;
+
+  --font-sans: "Instrument Sans Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --shadow-sheet: 0 -8px 32px rgb(15 23 42 / 0.16);
+  --shadow-pop: 0 6px 24px rgb(15 23 42 / 0.18);
 }
 
 html, body, #app {
@@ -31,20 +56,89 @@ html, body, #app {
 
 body {
   font-family: var(--font-sans);
-  background: var(--color-navy-950);
+  background: var(--color-mist);
   color: var(--color-ink-900);
   overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* prevent iOS rubber-band interfering with edge-swipe */
-.safe-top { padding-top: env(safe-area-inset-top); }
-.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+:focus-visible {
+  outline: 2px solid var(--color-brand-600);
+  outline-offset: 2px;
+}
+
+/* Somam a área segura do aparelho a um respiro opcional (--pad-top / --pad-bottom),
+   para não brigar com utilitários pt-* / pb-* no mesmo elemento. */
+.safe-top { padding-top: calc(env(safe-area-inset-top) + var(--pad-top, 0px)); }
+.safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom) + var(--pad-bottom, 0px)); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 
 @layer components {
+  .label {
+    @apply block mb-1.5 text-[13px] font-medium text-ink-700;
+  }
   .input {
-    @apply mt-1 w-full rounded-xl bg-navy-800 border border-navy-600 px-4 py-3 text-white text-base placeholder-ink-400 focus:outline-none focus:ring-2 focus:ring-accent-500;
+    @apply block w-full min-h-12 rounded-[10px] bg-surface border border-ink-200 px-3.5 py-2.5 text-base text-ink-900 placeholder:text-ink-400 transition-colors;
+    @apply focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15;
+    @apply disabled:bg-ink-50 disabled:text-ink-500;
   }
-  .btn-primary {
-    @apply rounded-xl bg-accent-500 text-navy-950 font-semibold py-3 px-4 active:scale-[0.98] transition disabled:opacity-50;
+  select.input {
+    @apply appearance-none pr-10 bg-no-repeat;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23526077' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-size: 18px;
+    background-position: right 12px center;
   }
+  textarea.input { @apply min-h-24 leading-relaxed; }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 min-h-12 px-4 rounded-[10px] text-[15px] font-semibold whitespace-nowrap transition select-none;
+    @apply active:scale-[0.98] disabled:opacity-45 disabled:pointer-events-none;
+  }
+  .btn-sm { @apply min-h-9 px-3 text-sm rounded-lg; }
+  .btn-primary { @apply bg-brand-600 text-white active:bg-brand-700; }
+  .btn-secondary { @apply bg-surface text-ink-900 border border-ink-200 active:bg-ink-50; }
+  .btn-tonal { @apply bg-ink-100 text-ink-900 active:bg-ink-200; }
+  .btn-ghost { @apply text-ink-700 active:bg-ink-100; }
+  .btn-danger { @apply bg-danger-100 text-danger-700 active:bg-danger-100/70; }
+
+  .icon-btn {
+    @apply inline-flex items-center justify-center h-10 w-10 shrink-0 rounded-full text-ink-700 transition active:bg-ink-100;
+  }
+
+  .page { @apply px-4 pt-4 pb-10 space-y-4; }
+  .panel { @apply bg-surface rounded-2xl border border-ink-200/80; }
+  .list { @apply bg-surface rounded-2xl border border-ink-200/80 divide-y divide-ink-100 overflow-hidden; }
+  .list-row { @apply block w-full text-left px-4 py-3.5 active:bg-ink-50 transition-colors; }
+
+  .section-title { @apply text-[15px] font-semibold text-ink-900; }
+  .meta { @apply text-[13px] text-ink-500; }
+
+  .figure {
+    font-stretch: 82%;
+    font-weight: 640;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  .switch {
+    @apply relative shrink-0 h-[26px] w-11 rounded-full bg-ink-200 appearance-none cursor-pointer transition-colors;
+  }
+  .switch::after {
+    content: '';
+    @apply absolute top-[3px] left-[3px] h-5 w-5 rounded-full bg-white shadow-[0_1px_3px_rgb(15_23_42/0.3)] transition-transform;
+  }
+  .switch:checked { @apply bg-brand-600; }
+  .switch:checked::after { transform: translateX(18px); }
+
+  .data-table { @apply w-full text-left text-sm; }
+  .data-table th { @apply py-2.5 px-3 text-xs font-medium text-ink-500 whitespace-nowrap border-b border-ink-200; }
+  .data-table td { @apply py-2.5 px-3 text-ink-900 border-b border-ink-100; }
+  .data-table tr:last-child td { @apply border-b-0; }
+  .data-table .num { @apply text-right tabular-nums whitespace-nowrap; }
 }

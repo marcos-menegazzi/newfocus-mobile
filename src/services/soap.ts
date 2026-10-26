@@ -11,6 +11,20 @@ function escapeXml(s: string): string {
     .replace(/'/g, '&apos;')
 }
 
+export class SoapHttpError extends Error {
+  readonly status: number
+
+  constructor(status: number) {
+    super(`SOAP HTTP ${status}`)
+    this.name = 'SoapHttpError'
+    this.status = status
+  }
+}
+
+// Tempo máximo sem receber dados (no Android 0 é espera infinita). Fica acima
+// do executionTimeout padrão do ASP.NET (110 s), que derruba a requisição antes.
+const READ_TIMEOUT_MS = 120000
+
 export interface SoapCommandOptions {
   server: string
   comando: string
@@ -43,16 +57,24 @@ export async function soapCommand(opts: SoapCommandOptions): Promise<Document> {
   const url = `https://${server}${WS_PATH}`
   const data = buildEnvelope(opts.comando, opts.costumerId, opts.username, opts.password)
 
-  const res = await CapacitorHttp.post({
-    url,
-    headers: { 'Content-Type': 'text/xml' },
-    data,
-    connectTimeout: 15000,
-    readTimeout: 0,
-  })
+  let res
+  try {
+    res = await CapacitorHttp.post({
+      url,
+      headers: { 'Content-Type': 'text/xml' },
+      data,
+      connectTimeout: 15000,
+      readTimeout: READ_TIMEOUT_MS,
+    })
+  } catch (e) {
+    if (e instanceof Error && /timed? ?out/i.test(e.message)) {
+      throw new Error('O servidor demorou demais para responder. Tente novamente.')
+    }
+    throw e
+  }
 
   if (res.status < 200 || res.status >= 300) {
-    throw new Error(`SOAP HTTP ${res.status}`)
+    throw new SoapHttpError(res.status)
   }
 
   return new DOMParser().parseFromString(res.data as string, 'text/xml')

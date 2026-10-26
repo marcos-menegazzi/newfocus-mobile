@@ -3,7 +3,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
-import ScreenHeader from '../components/ScreenHeader.vue'
 import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
 import { useToast } from '../composables/useToast'
@@ -57,52 +56,35 @@ GROUP BY h.produto, h.sequencia ORDER BY h.produto`
 </script>
 
 <template>
-  <AppShell>
-    <div class="p-6">
-      <ScreenHeader :title="`Pedido Nº ${pedido}`" />
-
-      <section class="bg-white rounded-card shadow-card p-5 mb-4">
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <span class="text-ink-600 text-xs font-medium">Cliente</span>
-            <p class="text-sm text-ink-900">{{ cliente || '—' }}</p>
-          </div>
-          <div>
-            <span class="text-ink-600 text-xs font-medium">Data</span>
-            <p class="text-sm text-ink-900">{{ mudadata(data) }}</p>
-          </div>
-          <div class="col-span-2">
-            <span class="text-ink-600 text-xs font-medium">Total</span>
-            <p class="text-sm text-ink-900">{{ formatReal(total) }}</p>
-          </div>
+  <AppShell :title="`Venda ${pedido}`" :subtitle="cliente || undefined" back>
+    <div class="page">
+      <section class="panel grid grid-cols-2 divide-x divide-ink-100">
+        <div class="px-4 py-3.5">
+          <p class="meta">Total</p>
+          <p class="mt-1 text-xl font-semibold tabular-nums">R$ {{ formatReal(total) }}</p>
+        </div>
+        <div class="px-4 py-3.5">
+          <p class="meta">Data</p>
+          <p class="mt-1 text-xl font-semibold tabular-nums">{{ mudadata(data) }}</p>
         </div>
       </section>
 
-      <EmptyState v-if="itens.length === 0" label="Nenhum item" />
-      <div v-else class="overflow-x-auto bg-white rounded-card shadow-card">
-        <table class="w-full text-left text-sm">
-          <thead class="text-ink-400 text-xs uppercase">
-            <tr>
-              <th class="py-2 px-3">Produto</th>
-              <th class="py-2 px-3">Descrição</th>
-              <th class="py-2 px-3 text-right">Qtd</th>
-              <th class="py-2 px-3 text-right">Vl. Unit.</th>
-              <th class="py-2 px-3 text-right">Desc.</th>
-              <th class="py-2 px-3 text-right">Total</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-ink-200">
-            <tr v-for="i in itens" :key="i.sequencia">
-              <td class="py-2 px-3">{{ i.produto }}</td>
-              <td class="py-2 px-3">{{ i.descricao }}</td>
-              <td class="py-2 px-3 text-right">{{ i.quant }}</td>
-              <td class="py-2 px-3 text-right">{{ formatReal(i.vlunit) }}</td>
-              <td class="py-2 px-3 text-right">{{ formatReal(i.vldescto) }}</td>
-              <td class="py-2 px-3 text-right">{{ formatReal(i.vltotal) }}</td>
-            </tr>
-          </tbody>
-        </table>
+      <div v-if="itens.length === 0" class="panel">
+        <EmptyState icon="package" label="Nenhum item nesta venda" />
       </div>
+      <section v-else>
+        <h2 class="section-title px-1 mb-2">{{ itens.length }} {{ itens.length === 1 ? 'item' : 'itens' }}</h2>
+        <ul class="list">
+          <li v-for="i in itens" :key="i.sequencia" class="flex items-start gap-3 px-4 py-3">
+            <div class="min-w-0 flex-1">
+              <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ i.descricao }}</p>
+              <p class="meta tabular-nums mt-0.5">Cód. {{ i.produto }}, {{ i.quant }} × R$ {{ formatReal(i.vlunit) }}</p>
+              <p v-if="Number(i.vldescto) > 0" class="text-xs text-brand-700 font-medium mt-0.5 tabular-nums">Desconto R$ {{ formatReal(i.vldescto) }}</p>
+            </div>
+            <p class="text-[15px] font-semibold tabular-nums shrink-0">R$ {{ formatReal(i.vltotal) }}</p>
+          </li>
+        </ul>
+      </section>
     </div>
   </AppShell>
 </template>

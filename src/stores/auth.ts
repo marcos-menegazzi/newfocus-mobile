@@ -30,6 +30,13 @@ export const useAuthStore = defineStore('auth', {
     usuario: null as Usuario | null,
     loggedIn: false,
   }),
+  getters: {
+    // Usuário de ordem de serviço: app totalmente online, só com as telas de OS.
+    isOs: (state): boolean => state.usuario?.snos === 'S',
+    homeRoute(): string {
+      return this.isOs ? 'os' : 'home'
+    },
+  },
   actions: {
     async login(input: LoginInput): Promise<void> {
       const comando = `P_LGWEB:EXEC("${input.usuario}","${input.senha}","${input.licenciada}", "${SCHEMA_VERSION}")`

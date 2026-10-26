@@ -2,12 +2,18 @@
 
 Source images for app icon and splash screen generation.
 
-- `icon.png` — 1024x1024 app icon (from legacy `res/android/1024.png`).
-- `splash.png` — 256x256 logo (from legacy `res/logo.png`).
+- `logo-mark.svg` — vector trace of the NewFocus mark (from `src/assets/logo.png`).
+  Every icon and splash below is rendered from it.
+- `icon.png` — 1024x1024 app icon (mark on white).
+- `splash.png` — 2732x2732 splash (mark centered on white).
 
-Final icon/splash assets should be generated with Capacitor's asset tooling
-(not installed in this repo yet):
+Android (`android/app/src/main/res`):
 
-```
-npx @capacitor/assets generate --iconBackgroundColor '#ffffff' --splashBackgroundColor '#ffffff'
-```
+- `mipmap-*/ic_launcher_foreground.png` — adaptive icon foreground (108dp canvas,
+  mark at ~48% height, inside the 66dp safe zone); background is `#FFFFFF`
+  (`values/ic_launcher_background.xml`).
+- `mipmap-*/ic_launcher.png` / `ic_launcher_round.png` — legacy icons (pre Android 8).
+- `drawable*/splash.png` — splash for Android < 12. On 12+ the system splash shows
+  the adaptive foreground on white (`values/styles.xml`).
+
+iOS: `AppIcon.appiconset/AppIcon-512@2x.png` and `Splash.imageset/*`.

@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest'
-import { buildEnvelope, text, WS_PATH } from './soap'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+const post = vi.fn()
+vi.mock('@capacitor/core', () => ({ CapacitorHttp: { post: (o: unknown) => post(o) } }))
+
+import { buildEnvelope, soapCommand, text, WS_PATH } from './soap'
+
+const opts = { server: 'dev.example.com', comando: 'X', costumerId: 'i', username: 'U', password: 'P' }
 
 describe('buildEnvelope', () => {
   it('contains comando, CostumerId, strUsername, strPassword', () => {
@@ -43,5 +49,27 @@ describe('text', () => {
 describe('WS_PATH', () => {
   it('matches the legacy endpoint', () => {
     expect(WS_PATH).toBe('/NewAgeWebServiceSetup/EASWebService.asmx?op=executarComando')
+  })
+})
+
+describe('soapCommand', () => {
+  beforeEach(() => {
+    post.mockReset()
+  })
+
+  it('limita a espera por resposta em vez de aguardar para sempre', async () => {
+    post.mockResolvedValue({ status: 200, data: '<retorno/>' })
+    await soapCommand(opts)
+    expect(post.mock.calls[0][0].readTimeout).toBeGreaterThan(0)
+  })
+
+  it('troca o erro de timeout por uma mensagem para o usuário', async () => {
+    post.mockRejectedValue(new Error('Read timed out'))
+    await expect(soapCommand(opts)).rejects.toThrow('O servidor demorou demais para responder')
+  })
+
+  it('repassa outros erros de rede sem alterar', async () => {
+    post.mockRejectedValue(new Error('Unable to resolve host'))
+    await expect(soapCommand(opts)).rejects.toThrow('Unable to resolve host')
   })
 })

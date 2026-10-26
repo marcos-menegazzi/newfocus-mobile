@@ -2,7 +2,9 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
-import ScreenHeader from '../components/ScreenHeader.vue'
+import Icon from '../components/Icon.vue'
+import SelectField from '../components/SelectField.vue'
+import Segmented from '../components/Segmented.vue'
 import { query, run } from '../db/connection'
 import { useAuthStore } from '../stores/auth'
 import { removechar } from '../services/sync/helpers'
@@ -63,6 +65,8 @@ const canSave = computed(() => {
   if (isEdit.value && u.altcli === 'S') return false
   return true
 })
+
+const SIM_NAO = [{ value: 'S', label: 'Sim' }, { value: 'N', label: 'Não' }]
 
 const lookupLoading = ref(false)
 const lookupMsg = ref('')
@@ -191,7 +195,7 @@ async function salvar() {
       `UPDATE clifor SET fantasia=?, bairro=?, cep=?, cidade=?, cj=?, contato=?, ddd=?, email=?, endereco=?, estado=?, fax=?, inscricao=?, numero=?, razao=?, tel1=?, cnpj=?, emailnfe=?, simples=?, tippess=?, obs=?, enviado='N', final=?, regiao=? WHERE clifor = ?`,
       [f.fantasia, ...params, f.final, f.regiao, idcliente.value],
     )
-    notify('Cliente atualizado')
+    notify('Cliente atualizado', 'success')
     return
   }
 
@@ -199,162 +203,153 @@ async function salvar() {
     `INSERT INTO clifor (bairro, cep, cidade, cj, contato, ddd, email, endereco, estado, fax, inscricao, numero, razao, tel1, cnpj, emailnfe, simples, tippess, obs, fantasia, enviado, codigo, inativo, final, regiao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'N', 0, 'N', ?, ?)`,
     [...params, f.fantasia, f.final, f.regiao],
   )
+  notify('Cliente cadastrado', 'success')
   const rows = await query<{ clifor: number }>('SELECT MAX(clifor) AS clifor FROM clifor')
   await router.replace(`/clientes/${rows[0]?.clifor ?? 0}`)
 }
 </script>
 
 <template>
-  <AppShell>
-    <div class="p-6">
-      <ScreenHeader title="Cadastro de Cliente" />
+  <AppShell :title="isEdit ? 'Editar cliente' : 'Novo cliente'" :subtitle="isEdit ? form.fantasia : undefined" back>
+    <div class="page">
+      <p v-if="!canSave" class="flex items-start gap-2 rounded-xl bg-sun-100 text-sun-800 px-3.5 py-3 text-sm">
+        <Icon name="info" class="mt-px" />
+        Seu usuário não tem permissão para {{ isEdit ? 'alterar' : 'cadastrar' }} clientes. Os dados estão só para consulta.
+      </p>
 
-      <section class="bg-white rounded-card shadow-card p-5 mb-4">
-        <h2 class="text-sm font-bold text-ink-900 mb-3">Informações do Cliente</h2>
-        <div class="grid grid-cols-1 gap-3">
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Razão Social</span>
-            <input v-model="form.razao" type="text" class="input" placeholder="Razão Social" />
-          </label>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Fantasia</span>
-            <input v-model="form.fantasia" type="text" class="input" placeholder="Fantasia" />
-          </label>
-          <div class="grid grid-cols-2 gap-3">
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Simples Nacional</span>
-              <select v-model="form.simples" class="input">
-                <option value="S">Sim</option>
-                <option value="N">Não</option>
-              </select>
-            </label>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Pessoa Física</span>
-              <select v-model="form.tippess" class="input">
-                <option value="S">Sim</option>
-                <option value="N">Não</option>
-              </select>
-            </label>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Final</span>
-              <select v-model="form.final" class="input">
-                <option value="N">Não</option>
-                <option value="S">Sim</option>
-              </select>
-            </label>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Inativo</span>
-              <select class="input" disabled>
-                <option value="N">Não</option>
-                <option value="S">Sim</option>
-              </select>
-            </label>
-          </div>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Região</span>
-            <select v-model="form.regiao" class="input">
-              <option value="">Selecione uma Região</option>
-              <option v-for="r in regioes" :key="r.regiao" :value="r.regiao">{{ r.descricao }}</option>
-            </select>
-          </label>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Observação</span>
-            <textarea v-model="form.obs" rows="4" class="input" placeholder="Observação" />
-          </label>
+      <section class="panel p-4 space-y-4">
+        <div>
+          <h2 class="section-title">Documento</h2>
+          <p class="meta mt-0.5">Com um CNPJ válido, busque os dados na Receita para preencher o cadastro.</p>
         </div>
+        <div>
+          <label class="label" for="cnpj">CNPJ ou CPF</label>
+          <div class="flex gap-2">
+            <input id="cnpj" v-model="form.cnpj" type="text" inputmode="numeric" class="input flex-1" placeholder="Somente números" />
+            <button type="button" class="btn btn-tonal shrink-0" :disabled="lookupLoading" @click="buscarCnpj">
+              <Icon name="search" :size="18" />
+              {{ lookupLoading ? 'Buscando…' : 'Buscar' }}
+            </button>
+          </div>
+          <p v-if="lookupMsg" class="text-danger-700 text-sm mt-1.5 flex items-center gap-1.5" role="alert">
+            <Icon name="alert" :size="16" /> {{ lookupMsg }}
+          </p>
+        </div>
+        <label class="block">
+          <span class="label">Inscrição estadual</span>
+          <input v-model="form.inscricao" type="text" class="input" />
+        </label>
       </section>
 
-      <section class="bg-white rounded-card shadow-card p-5 mb-4">
-        <h2 class="text-sm font-bold text-ink-900 mb-3">Endereço</h2>
-        <div class="grid grid-cols-1 gap-3">
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Endereço</span>
-            <input v-model="form.endereco" type="text" class="input" placeholder="Endereço" />
-          </label>
-          <div class="grid grid-cols-2 gap-3">
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Número</span>
-              <input v-model="form.numero" type="text" class="input" placeholder="Número" />
-            </label>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Complemento</span>
-              <input v-model="form.cj" type="text" class="input" placeholder="Complemento" />
-            </label>
+      <section class="panel p-4 space-y-4">
+        <h2 class="section-title">Informações do cliente</h2>
+        <label class="block">
+          <span class="label">Razão social</span>
+          <input v-model="form.razao" type="text" class="input" />
+        </label>
+        <label class="block">
+          <span class="label">Nome fantasia</span>
+          <input v-model="form.fantasia" type="text" class="input" />
+        </label>
+        <div class="grid grid-cols-1 min-[400px]:grid-cols-2 gap-4">
+          <div>
+            <span class="label">Simples Nacional</span>
+            <Segmented v-model="form.simples" :options="SIM_NAO" label="Simples Nacional" />
           </div>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Bairro</span>
-            <input v-model="form.bairro" type="text" class="input" placeholder="Bairro" />
-          </label>
-          <div class="grid grid-cols-2 gap-3">
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">CEP</span>
-              <input v-model="form.cep" type="text" class="input" placeholder="CEP" />
-            </label>
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">Estado</span>
-              <select v-model="form.estado" class="input">
-                <option value="">Estado</option>
-                <option v-for="e in estados" :key="e.sigla" :value="e.sigla">{{ e.nome }}</option>
-              </select>
-            </label>
+          <div>
+            <span class="label">Pessoa física</span>
+            <Segmented v-model="form.tippess" :options="SIM_NAO" label="Pessoa física" />
           </div>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Cidade</span>
-            <select v-model="form.cidade" class="input" :disabled="!form.estado">
-              <option value="">Cidade</option>
-              <option v-for="c in cidades" :key="c" :value="c">{{ c }}</option>
-            </select>
-          </label>
+          <div>
+            <span class="label">Consumidor final</span>
+            <Segmented v-model="form.final" :options="SIM_NAO" label="Consumidor final" />
+          </div>
+          <div>
+            <span class="label">Inativo</span>
+            <div class="input flex items-center text-ink-500 bg-ink-50">Não</div>
+          </div>
         </div>
+        <label class="block">
+          <span class="label">Região</span>
+          <SelectField v-model="form.regiao" :options="regioes.map((r) => ({ value: r.regiao, label: r.descricao }))" title="Selecionar região" placeholder="Selecione uma região" empty="Nenhuma região disponível" emptyHint="Sincronize para baixar as regiões." />
+        </label>
+        <label class="block">
+          <span class="label">Observação</span>
+          <textarea v-model="form.obs" rows="3" class="input" />
+        </label>
       </section>
 
-      <section class="bg-white rounded-card shadow-card p-5 mb-4">
-        <h2 class="text-sm font-bold text-ink-900 mb-3">Contato</h2>
-        <div class="grid grid-cols-1 gap-3">
+      <section class="panel p-4 space-y-4">
+        <h2 class="section-title">Endereço</h2>
+        <div class="grid grid-cols-[1fr_6.5rem] gap-3">
           <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Contato</span>
-            <input v-model="form.contato" type="text" class="input" placeholder="Contato" />
-          </label>
-          <div class="grid grid-cols-3 gap-3">
-            <label class="block">
-              <span class="text-ink-600 text-xs font-medium">DDD</span>
-              <input v-model="form.ddd" type="text" class="input" placeholder="DDD" />
-            </label>
-            <label class="block col-span-2">
-              <span class="text-ink-600 text-xs font-medium">Telefone</span>
-              <input v-model="form.tel1" type="text" class="input" placeholder="Telefone" />
-            </label>
-          </div>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Celular</span>
-            <input v-model="form.fax" type="text" class="input" placeholder="Celular" />
+            <span class="label">Logradouro</span>
+            <input v-model="form.endereco" type="text" class="input" />
           </label>
           <label class="block">
-            <span class="text-ink-600 text-xs font-medium">E-mail</span>
-            <input v-model="form.email" type="text" class="input" placeholder="E-mail" />
-          </label>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">E-mail NF-e</span>
-            <input v-model="form.emailnfe" type="text" class="input" placeholder="E-mail NF-e" />
-          </label>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">CNPJ</span>
-            <div class="flex gap-2">
-              <input v-model="form.cnpj" type="text" class="input flex-1" placeholder="CNPJ" />
-              <button type="button" class="btn-primary shrink-0 px-4" :disabled="lookupLoading" @click="buscarCnpj">
-                {{ lookupLoading ? 'Buscando…' : 'Buscar' }}
-              </button>
-            </div>
-            <p v-if="lookupMsg" class="text-red-500 text-xs mt-1">{{ lookupMsg }}</p>
-          </label>
-          <label class="block">
-            <span class="text-ink-600 text-xs font-medium">Inscrição Estadual</span>
-            <input v-model="form.inscricao" type="text" class="input" placeholder="IE" />
+            <span class="label">Número</span>
+            <input v-model="form.numero" type="text" class="input" />
           </label>
         </div>
+        <label class="block">
+          <span class="label">Complemento</span>
+          <input v-model="form.cj" type="text" class="input" />
+        </label>
+        <div class="grid grid-cols-[1fr_8rem] gap-3">
+          <label class="block">
+            <span class="label">Bairro</span>
+            <input v-model="form.bairro" type="text" class="input" />
+          </label>
+          <label class="block">
+            <span class="label">CEP</span>
+            <input v-model="form.cep" type="text" inputmode="numeric" class="input" />
+          </label>
+        </div>
+        <label class="block">
+          <span class="label">Estado</span>
+          <SelectField v-model="form.estado" :options="estados.map((e) => ({ value: e.sigla, label: e.nome, hint: e.sigla }))" title="Selecionar estado" placeholder="Selecione o estado" />
+        </label>
+        <label class="block">
+          <span class="label">Cidade</span>
+          <SelectField v-model="form.cidade" :options="cidades.map((c) => ({ value: c, label: c }))" title="Selecionar cidade" :placeholder="form.estado ? 'Selecione a cidade' : 'Escolha o estado primeiro'" :disabled="!form.estado" />
+        </label>
       </section>
 
-      <button v-if="canSave" class="btn-primary w-full" @click="salvar">Salvar</button>
+      <section class="panel p-4 space-y-4">
+        <h2 class="section-title">Contato</h2>
+        <label class="block">
+          <span class="label">Nome do contato</span>
+          <input v-model="form.contato" type="text" class="input" />
+        </label>
+        <div class="grid grid-cols-[5rem_1fr] gap-3">
+          <label class="block">
+            <span class="label">DDD</span>
+            <input v-model="form.ddd" type="text" inputmode="numeric" maxlength="3" class="input" />
+          </label>
+          <label class="block">
+            <span class="label">Telefone</span>
+            <input v-model="form.tel1" type="tel" class="input" />
+          </label>
+        </div>
+        <label class="block">
+          <span class="label">Celular</span>
+          <input v-model="form.fax" type="tel" class="input" />
+        </label>
+        <label class="block">
+          <span class="label">E-mail</span>
+          <input v-model="form.email" type="email" autocapitalize="off" class="input" />
+        </label>
+        <label class="block">
+          <span class="label">E-mail para NF-e</span>
+          <input v-model="form.emailnfe" type="email" autocapitalize="off" class="input" />
+        </label>
+      </section>
     </div>
+
+    <template v-if="canSave" #footer>
+      <button class="btn btn-primary w-full" @click="salvar">
+        {{ isEdit ? 'Salvar alterações' : 'Cadastrar cliente' }}
+      </button>
+    </template>
   </AppShell>
 </template>

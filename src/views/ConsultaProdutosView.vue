@@ -1,19 +1,39 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
-import ScreenHeader from '../components/ScreenHeader.vue'
+import LoadingState from '../components/LoadingState.vue'
+import FilterButton from '../components/FilterButton.vue'
+import FilterChips, { type Chip } from '../components/FilterChips.vue'
+import Icon from '../components/Icon.vue'
+import SelectField from '../components/SelectField.vue'
+import SearchField from '../components/SearchField.vue'
+import Segmented from '../components/Segmented.vue'
+import Sheet from '../components/Sheet.vue'
 import { query } from '../db/connection'
-import { formatReal } from '../lib/format'
+import { formatNumero, formatReal } from '../lib/format'
 import { useAuthStore } from '../stores/auth'
 import { useToast } from '../composables/useToast'
+import { useFilters } from '../composables/useFilters'
 
 const COLUMNS: Record<string, string> = {
   descred: 'descred',
   descricao: 'descricao',
   codigo: 'codigo',
 }
+
+const COL_OPTIONS = [
+  { value: 'descred', label: 'Descrição reduzida' },
+  { value: 'descricao', label: 'Descrição' },
+  { value: 'codigo', label: 'Código' },
+]
+
+const POSITIVADO_OPTIONS = [
+  { value: 'todos', label: 'Todos' },
+  { value: 'positivados', label: 'Positivados' },
+  { value: 'nao', label: 'Não positivados' },
+]
 
 const LIMITS = [10, 20, 30, 40, 50, 100]
 
@@ -33,17 +53,34 @@ interface EmpresaRow {
 const auth = useAuthStore()
 const { notify } = useToast()
 
-const col = ref('descred')
-const positivado = ref('todos')
-const empresa = ref('')
+const DEFAULTS = { col: 'descred', positivado: 'todos', empresa: '', limit: 10 }
+const { filtros, draft, show: showFiltros, abrir: abrirFiltros, aplicar: aplicarFiltros, limpar: limparFiltros, remover: removerFiltro } =
+  useFilters(DEFAULTS, () => resetAndBuscar())
+
 const search = ref('')
-const limit = ref(10)
 const page = ref(0)
 
 const empresas = ref<EmpresaRow[]>([])
 const produtos = ref<ProdutoRow[]>([])
 const loading = ref(false)
 const searched = ref(false)
+
+const colLabel = (v: string) => COL_OPTIONS.find((o) => o.value === v)?.label ?? v
+const placeholder = computed(() => `Buscar por ${colLabel(filtros.col).toLowerCase()}`)
+
+const chips = computed<Chip[]>(() => {
+  const c: Chip[] = []
+  if (filtros.col !== DEFAULTS.col) c.push({ key: 'col', label: `Em: ${colLabel(filtros.col)}` })
+  if (filtros.positivado !== DEFAULTS.positivado) {
+    c.push({ key: 'positivado', label: POSITIVADO_OPTIONS.find((o) => o.value === filtros.positivado)!.label })
+  }
+  if (filtros.empresa) {
+    const e = empresas.value.find((x) => String(x.empresa) === filtros.empresa)
+    c.push({ key: 'empresa', label: e?.fantasia ?? `Empresa ${filtros.empresa}` })
+  }
+  if (filtros.limit !== DEFAULTS.limit) c.push({ key: 'limit', label: `${filtros.limit} por página` })
+  return c
+})
 
 function monthBounds(): [string, string] {
   const now = new Date()
@@ -57,35 +94,36 @@ async function buscar() {
   try {
     const [start, end] = monthBounds()
     const params: unknown[] = [start, end]
+    const col = COLUMNS[filtros.col]
 
     const estoque = auth.usuario?.estoque === 'S' ? ' AND e.estoque > 0' : ''
-    const centralizado = empresa.value ? '' : " AND centralizado <> 'S'"
+    const centralizado = filtros.empresa ? '' : " AND centralizado <> 'S'"
 
     let filterEmpresa = ''
-    if (empresa.value) {
+    if (filtros.empresa) {
       filterEmpresa = ' AND e.empresa = ?'
-      params.push(empresa.value)
+      params.push(filtros.empresa)
     }
 
     let searchClause = ''
     const term = search.value.trim()
     if (term) {
-      searchClause = ` AND p.${COLUMNS[col.value]} LIKE ?`
+      searchClause = ` AND p.${col} LIKE ?`
       params.push(`%${term}%`)
     }
 
-    const select = `SELECT p.codigo, sum(e.estoque) AS estoque, p.${COLUMNS[col.value]} AS descvis, p.comprado, (SELECT COUNT(*) FROM HISTVENDA H INNER JOIN HISTITENS I ON H.LANCTO = I.LANCTO INNER JOIN PRODUTOS G ON G.CODIGO = I.PRODUTO WHERE H.DATA BETWEEN ? AND ? AND I.FATURAMENTO = 'S' AND I.PRODUTO = p.codigo) AS positivado FROM (SELECT * FROM produtos x GROUP BY x.codigo) p LEFT JOIN estoque e ON p.codigo = e.codigo${estoque}${centralizado} WHERE 1=1${filterEmpresa}${searchClause} GROUP BY p.codigo`
+    const select = `SELECT p.codigo, sum(e.estoque) AS estoque, p.${col} AS descvis, p.comprado, (SELECT COUNT(*) FROM HISTVENDA H INNER JOIN HISTITENS I ON H.LANCTO = I.LANCTO INNER JOIN PRODUTOS G ON G.CODIGO = I.PRODUTO WHERE H.DATA BETWEEN ? AND ? AND I.FATURAMENTO = 'S' AND I.PRODUTO = p.codigo) AS positivado FROM (SELECT * FROM produtos x GROUP BY x.codigo) p LEFT JOIN estoque e ON p.codigo = e.codigo${estoque}${centralizado} WHERE 1=1${filterEmpresa}${searchClause} GROUP BY p.codigo`
 
     let sql: string
-    if (positivado.value === 'positivados') {
+    if (filtros.positivado === 'positivados') {
       sql = `SELECT * FROM (${select}) q WHERE q.positivado > 0 ORDER BY q.descvis LIMIT ? OFFSET ?`
-    } else if (positivado.value === 'nao') {
+    } else if (filtros.positivado === 'nao') {
       sql = `SELECT * FROM (${select}) q WHERE q.positivado = 0 ORDER BY q.descvis LIMIT ? OFFSET ?`
     } else {
       sql = `${select} ORDER BY descvis LIMIT ? OFFSET ?`
     }
 
-    params.push(limit.value, page.value * limit.value)
+    params.push(filtros.limit, page.value * filtros.limit)
     produtos.value = await query<ProdutoRow>(sql, params)
     searched.value = true
   } catch (e) {
@@ -103,8 +141,6 @@ function resetAndBuscar() {
   page.value = 0
   buscar()
 }
-
-watch([col, positivado, empresa, limit], resetAndBuscar)
 
 function prev() {
   if (page.value === 0) return
@@ -124,67 +160,83 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell>
-    <div class="p-6">
-      <ScreenHeader title="Produtos" :back="false" />
+  <AppShell title="Produtos">
+    <template #actions>
+      <FilterButton :count="chips.length" class="mr-1" @click="abrirFiltros" />
+    </template>
 
-      <div class="grid grid-cols-2 gap-3 mb-3">
-        <select v-model="col" class="input">
-          <option value="descred">Descr. Reduzida</option>
-          <option value="descricao">Descrição</option>
-          <option value="codigo">Código</option>
-        </select>
-        <select v-model="positivado" class="input">
-          <option value="todos">Todos</option>
-          <option value="positivados">Positivados</option>
-          <option value="nao">Não positivados</option>
-        </select>
+    <div class="page">
+      <div class="space-y-3">
+        <SearchField v-model="search" :placeholder="placeholder" @submit="resetAndBuscar" />
+        <FilterChips :items="chips" @remove="removerFiltro" @open="abrirFiltros" />
       </div>
 
-      <div class="grid grid-cols-2 gap-3 mb-3">
-        <select v-model="empresa" class="input">
-          <option value="">Todas empresas</option>
-          <option v-for="e in empresas" :key="e.empresa" :value="String(e.empresa)">{{ e.fantasia }}</option>
-        </select>
-        <select v-model="limit" class="input">
-          <option v-for="l in LIMITS" :key="l" :value="l">{{ l }} por página</option>
-        </select>
+      <LoadingState v-if="loading && !searched" />
+      <div v-else-if="searched && produtos.length === 0" class="panel">
+        <EmptyState icon="package" label="Nenhum produto encontrado" hint="Tente outro termo ou ajuste os filtros." />
       </div>
-
-      <div class="flex gap-2 mb-4">
-        <input
-          v-model="search"
-          class="input flex-1"
-          type="text"
-          placeholder="Buscar..."
-          @keyup.enter="resetAndBuscar"
-        />
-        <button class="btn-primary shrink-0 px-6" :disabled="loading" @click="resetAndBuscar">Buscar</button>
-      </div>
-
-      <EmptyState v-if="searched && produtos.length === 0" label="Nenhum produto encontrado" />
-      <ul v-else class="divide-y divide-ink-200 bg-white rounded-card shadow-card overflow-hidden">
-        <li v-for="p in produtos" :key="p.codigo" class="px-4 py-3">
-          <div class="flex items-start justify-between gap-3">
-            <RouterLink :to="`/produtos/${p.codigo}`" class="min-w-0">
-              <p class="text-sm font-medium text-ink-900 truncate">{{ p.descvis }}</p>
-              <p class="text-xs text-ink-400 truncate">Cód. {{ p.codigo }}</p>
-              <p class="text-xs text-ink-400 truncate">Estoque: {{ p.estoque ?? 0 }}</p>
-              <p class="text-xs text-ink-400 truncate">{{ formatReal(p.comprado) }}</p>
-            </RouterLink>
-            <span
-              class="inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
-              :class="p.positivado > 0 ? 'bg-[#22C55E] text-white' : 'bg-ink-200 text-ink-600'"
-            >{{ p.positivado > 0 ? 'Positivado' : 'Não' }}</span>
-          </div>
+      <ul v-else class="list" :class="{ 'opacity-60': loading }">
+        <li v-for="p in produtos" :key="p.codigo">
+          <RouterLink :to="`/produtos/${p.codigo}`" class="list-row flex items-center gap-3">
+            <div class="min-w-0 flex-1">
+              <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ p.descvis }}</p>
+              <p class="meta mt-1 tabular-nums">
+                Cód. {{ p.codigo }}
+                <span class="mx-1.5 text-ink-200" aria-hidden="true">|</span>
+                <span v-if="!p.estoque" class="font-medium text-danger-700">Sem estoque</span>
+                <span v-else :class="{ 'font-medium text-danger-700': p.estoque < 0 }">Estoque {{ formatNumero(p.estoque) }}</span>
+              </p>
+            </div>
+            <div class="flex flex-col items-end gap-1.5 shrink-0">
+              <p class="flex items-baseline gap-0.5 tabular-nums">
+                <span class="text-xs text-ink-500">R$</span>
+                <span class="figure text-[18px]">{{ formatReal(p.comprado) }}</span>
+              </p>
+              <span v-if="p.positivado > 0" class="inline-flex items-center gap-1 h-5 rounded-full bg-success-50 pl-1.5 pr-2 text-[11px] font-semibold text-success-800">
+                <Icon name="check" :size="12" :stroke="2.6" /> Positivado
+              </span>
+            </div>
+            <Icon name="chevron-right" class="text-ink-400" />
+          </RouterLink>
         </li>
       </ul>
 
-      <div class="flex items-center justify-between gap-3 mt-4">
-        <button class="btn-primary" :disabled="loading || page === 0" @click="prev">Anterior</button>
-        <span class="text-sm text-ink-400">Página {{ page + 1 }}</span>
-        <button class="btn-primary" :disabled="loading || produtos.length < limit" @click="next">Próxima</button>
-      </div>
+      <nav v-if="searched && (page > 0 || produtos.length >= filtros.limit)" class="flex items-center justify-between gap-3" aria-label="Paginação">
+        <button class="btn btn-secondary btn-sm" :disabled="loading || page === 0" @click="prev">
+          <Icon name="back" :size="16" /> Anterior
+        </button>
+        <span class="meta tabular-nums">Página {{ page + 1 }}</span>
+        <button class="btn btn-secondary btn-sm" :disabled="loading || produtos.length < filtros.limit" @click="next">
+          Próxima <Icon name="chevron-right" :size="16" />
+        </button>
+      </nav>
     </div>
+
+    <Sheet :open="showFiltros" title="Filtrar produtos" @close="showFiltros = false">
+      <div class="space-y-5">
+        <label class="block">
+          <span class="label">Buscar em</span>
+          <SelectField v-model="draft.col" :options="COL_OPTIONS" title="Buscar em" />
+        </label>
+        <div>
+          <span class="label">Positivação no mês</span>
+          <Segmented v-model="draft.positivado" :options="POSITIVADO_OPTIONS" label="Positivação no mês" />
+        </div>
+        <label class="block">
+          <span class="label">Empresa</span>
+          <SelectField v-model="draft.empresa" :options="[{ value: '', label: 'Todas as empresas' }, ...empresas.map((e) => ({ value: String(e.empresa), label: e.fantasia }))]" title="Selecionar empresa" />
+        </label>
+        <label class="block">
+          <span class="label">Itens por página</span>
+          <SelectField v-model="draft.limit" :options="LIMITS.map((l) => ({ value: l, label: String(l) }))" title="Itens por página" />
+        </label>
+      </div>
+      <template #footer>
+        <div class="flex gap-2">
+          <button class="btn btn-ghost" @click="limparFiltros">Limpar</button>
+          <button class="btn btn-primary flex-1" @click="aplicarFiltros">Aplicar filtros</button>
+        </div>
+      </template>
+    </Sheet>
   </AppShell>
 </template>

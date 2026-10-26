@@ -3,7 +3,9 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
-import ScreenHeader from '../components/ScreenHeader.vue'
+import Icon from '../components/Icon.vue'
+import LoadingState from '../components/LoadingState.vue'
+import Sheet from '../components/Sheet.vue'
 import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
 import { titulosAbertos, duplicata, type TituloAberto } from '../services/sync/titulos_abertos'
@@ -72,84 +74,60 @@ async function verDuplicata(r: TituloAberto) {
 </script>
 
 <template>
-  <AppShell>
-    <div class="p-6">
-      <ScreenHeader :title="fantasia || 'Títulos'" />
-
-      <div class="flex justify-end mb-4">
-        <button class="btn-primary px-4" @click="abrirAbertos">Títulos Abertos</button>
+  <AppShell title="Títulos" :subtitle="fantasia || undefined" back>
+    <div class="page">
+      <LoadingState v-if="loading" />
+      <div v-else-if="titulos.length === 0" class="panel">
+        <EmptyState icon="receipt" label="Nenhum título deste cliente" hint="Consulte os títulos em aberto direto no servidor.">
+          <button class="btn btn-tonal btn-sm" @click="abrirAbertos">Ver títulos em aberto</button>
+        </EmptyState>
       </div>
+      <template v-else>
+        <section class="panel flex items-center justify-between gap-4 px-4 py-4">
+          <div>
+            <p class="meta">{{ titulos.length }} {{ titulos.length === 1 ? 'título' : 'títulos' }}</p>
+            <p class="mt-1 flex items-baseline gap-1">
+              <span class="text-sm text-ink-500">R$</span>
+              <span class="figure text-[30px]">{{ formatReal(total) }}</span>
+            </p>
+          </div>
+          <button class="btn btn-tonal btn-sm" @click="abrirAbertos">Em aberto no servidor</button>
+        </section>
 
-      <EmptyState v-if="!loading && titulos.length === 0" label="Nenhum título" />
-      <div v-else class="overflow-x-auto bg-white rounded-card shadow-card">
-        <table class="w-full text-left text-sm">
-          <thead class="text-ink-400 text-xs uppercase">
-            <tr>
-              <th class="py-2 px-3">Nº Título</th>
-              <th class="py-2 px-3">Empresa</th>
-              <th class="py-2 px-3">Cobrança</th>
-              <th class="py-2 px-3">Vencimento</th>
-              <th class="py-2 px-3 text-right">Valor</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-ink-200">
-            <tr v-for="t in titulos" :key="t.numero">
-              <td class="py-2 px-3">
-                <RouterLink
-                  :to="{ path: `/titulo/${t.numero}`, query: { idcliente, fantasia } }"
-                  class="font-semibold text-accent-600"
-                >{{ t.numero }}</RouterLink>
-              </td>
-              <td class="py-2 px-3">{{ t.empresa }}</td>
-              <td class="py-2 px-3">{{ t.cobranca }}</td>
-              <td class="py-2 px-3">{{ mudadata(t.vencimento) }}</td>
-              <td class="py-2 px-3 text-right">{{ formatReal(t.valor) }}</td>
-            </tr>
-            <tr class="bg-ink-100 font-semibold">
-              <td class="py-2 px-3" colspan="4">Total</td>
-              <td class="py-2 px-3 text-right">{{ formatReal(total) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+        <ul class="list">
+          <li v-for="t in titulos" :key="t.numero">
+            <RouterLink
+              :to="{ path: `/titulo/${t.numero}`, query: { idcliente, fantasia } }"
+              class="list-row flex items-center gap-3"
+            >
+              <div class="min-w-0 flex-1">
+                <p class="text-[15px] font-medium tabular-nums">Nº {{ t.numero }}</p>
+                <p class="meta truncate">{{ t.cobranca }}, empresa {{ t.empresa }}</p>
+              </div>
+              <div class="text-right shrink-0">
+                <p class="text-[15px] font-semibold tabular-nums">R$ {{ formatReal(t.valor) }}</p>
+                <p class="meta tabular-nums">Vence {{ mudadata(t.vencimento) }}</p>
+              </div>
+              <Icon name="chevron-right" class="text-ink-400" />
+            </RouterLink>
+          </li>
+        </ul>
+      </template>
     </div>
 
-    <div
-      v-if="abertos"
-      class="fixed inset-0 z-40 flex items-end justify-center bg-black/50"
-      @click.self="abertos = false"
-    >
-      <div class="w-full max-h-[90vh] overflow-auto rounded-t-2xl bg-white p-5">
-        <h2 class="text-lg font-bold text-ink-900 mb-3">Títulos Abertos</h2>
-
-        <EmptyState v-if="!abertosLoading && abertosRows.length === 0" label="Nenhum título aberto" />
-        <div v-else class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
-            <thead class="text-ink-400 text-xs uppercase">
-              <tr>
-                <th class="py-2 pr-3">Nº</th>
-                <th class="py-2 pr-3">Cobrança</th>
-                <th class="py-2 pr-3">Vencimento</th>
-                <th class="py-2 pr-3 text-right">Valor</th>
-                <th class="py-2"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-ink-200">
-              <tr v-for="(r, i) in abertosRows" :key="i">
-                <td class="py-2 pr-3">{{ r.numero }}</td>
-                <td class="py-2 pr-3">{{ r.cobranca }}</td>
-                <td class="py-2 pr-3">{{ mudadata(r.dtvenc) }}</td>
-                <td class="py-2 pr-3 text-right">{{ formatReal(r.valor) }}</td>
-                <td class="py-2">
-                  <button class="text-xs font-semibold text-accent-600" @click="verDuplicata(r)">Duplicata</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <button class="w-full mt-4 py-2 text-sm font-semibold text-ink-600" @click="abertos = false">Fechar</button>
-      </div>
-    </div>
+    <Sheet :open="abertos" title="Títulos em aberto" :subtitle="fantasia || undefined" size="tall" @close="abertos = false">
+      <LoadingState v-if="abertosLoading" label="Consultando o servidor…" />
+      <EmptyState v-else-if="abertosRows.length === 0" icon="check-circle" label="Nenhum título em aberto" />
+      <ul v-else class="divide-y divide-ink-100 -mx-5">
+        <li v-for="(r, i) in abertosRows" :key="i" class="flex items-center gap-3 px-5 py-3">
+          <div class="min-w-0 flex-1">
+            <p class="text-[15px] font-medium tabular-nums">Nº {{ r.numero }}</p>
+            <p class="meta truncate">{{ r.cobranca }}, vence {{ mudadata(r.dtvenc) }}</p>
+          </div>
+          <p class="text-[15px] font-semibold tabular-nums shrink-0">R$ {{ formatReal(r.valor) }}</p>
+          <button class="btn btn-tonal btn-sm shrink-0" @click="verDuplicata(r)">Duplicata</button>
+        </li>
+      </ul>
+    </Sheet>
   </AppShell>
 </template>
