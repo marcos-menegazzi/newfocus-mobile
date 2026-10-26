@@ -148,41 +148,43 @@ onMounted(async () => {
           </dl>
         </section>
 
-        <section aria-labelledby="precos-title" class="space-y-3">
-          <h2 id="precos-title" class="section-title px-1 -mb-1">Preços</h2>
-          <div v-if="precos.length === 0" class="panel">
-            <EmptyState icon="receipt" label="Sem preço cadastrado" hint="Este produto não está em nenhuma tabela de preço." />
-          </div>
-          <div v-for="t in precos" :key="String(t.codigo)" class="panel overflow-hidden">
-            <h3 class="px-4 pt-3.5 pb-1 text-sm font-semibold text-ink-700">{{ t.descricao }}</h3>
-            <div class="overflow-x-auto">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th class="pl-4">Unidade</th>
-                    <th class="num text-ink-900!">Venda</th>
-                    <th class="num">Mínimo</th>
-                    <th class="num pr-4">Máximo</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td class="pl-4 font-medium">Padrão</td>
-                    <td class="num font-semibold">{{ formatReal(num(t.venda)) }}</td>
-                    <td class="num text-ink-700!">{{ formatReal(num(t.minimo)) }}</td>
-                    <td class="num pr-4 text-ink-700!">{{ formatReal(num(t.maximo)) }}</td>
-                  </tr>
-                  <tr v-for="f in fatores" :key="f.unidade">
-                    <td class="pl-4 whitespace-nowrap">
-                      <span class="font-medium">{{ f.unidade }}</span>
-                      <span class="ml-1 text-xs text-ink-500 tabular-nums">×{{ formatNumero(f.fator) }}</span>
-                    </td>
-                    <td class="num font-semibold">{{ formatReal(num(t.venda) * num(f.fator)) }}</td>
-                    <td class="num text-ink-700!">{{ formatReal(num(t.minimo) * num(f.fator)) }}</td>
-                    <td class="num pr-4 text-ink-700!">{{ formatReal(num(t.maximo) * num(f.fator)) }}</td>
-                  </tr>
-                </tbody>
-              </table>
+        <section aria-labelledby="precos-title">
+          <h2 id="precos-title" class="section-title px-1 mb-2">Preços</h2>
+          <div class="space-y-3">
+            <div v-if="precos.length === 0" class="panel">
+              <EmptyState icon="receipt" label="Sem preço cadastrado" hint="Este produto não está em nenhuma tabela de preço." />
+            </div>
+            <div v-for="t in precos" :key="String(t.codigo)" class="panel overflow-hidden">
+              <h3 class="px-4 pt-3.5 pb-1 text-sm font-semibold text-ink-700">{{ t.descricao }}</h3>
+              <div class="overflow-x-auto">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th class="pl-4">Unidade</th>
+                      <th class="num text-ink-900!">Venda</th>
+                      <th class="num">Mínimo</th>
+                      <th class="num pr-4">Máximo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td class="pl-4 font-medium">Padrão</td>
+                      <td class="num font-semibold">{{ formatReal(num(t.venda)) }}</td>
+                      <td class="num text-ink-700!">{{ formatReal(num(t.minimo)) }}</td>
+                      <td class="num pr-4 text-ink-700!">{{ formatReal(num(t.maximo)) }}</td>
+                    </tr>
+                    <tr v-for="f in fatores" :key="f.unidade">
+                      <td class="pl-4 whitespace-nowrap">
+                        <span class="font-medium">{{ f.unidade }}</span>
+                        <span class="ml-1 text-xs text-ink-500 tabular-nums">×{{ formatNumero(f.fator) }}</span>
+                      </td>
+                      <td class="num font-semibold">{{ formatReal(num(t.venda) * num(f.fator)) }}</td>
+                      <td class="num text-ink-700!">{{ formatReal(num(t.minimo) * num(f.fator)) }}</td>
+                      <td class="num pr-4 text-ink-700!">{{ formatReal(num(t.maximo) * num(f.fator)) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </section>
