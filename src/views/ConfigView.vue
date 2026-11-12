@@ -4,8 +4,10 @@ import { useAuthStore } from '../stores/auth'
 import { run } from '../db/connection'
 import AppShell from '../components/AppShell.vue'
 import { useToast } from '../composables/useToast'
+import { APP_VERSION, buildDateLabel } from '../lib/appInfo'
 
 const auth = useAuthStore()
+const buildDate = buildDateLabel()
 const { notify } = useToast()
 const form = reactive({ server: auth.usuario?.server ?? '' })
 
@@ -49,6 +51,13 @@ async function save() {
         <div class="flex justify-between gap-4 px-4 py-3.5">
           <dt class="text-ink-500">ID do cliente</dt>
           <dd class="font-medium">{{ auth.usuario?.id }}</dd>
+        </div>
+        <div class="flex justify-between gap-4 px-4 py-3.5">
+          <dt class="text-ink-500">Versão do app</dt>
+          <dd class="text-right">
+            <span class="font-medium tabular-nums">{{ APP_VERSION }}</span>
+            <span class="meta block tabular-nums">compilada em {{ buildDate }}</span>
+          </dd>
         </div>
         <div class="flex justify-between gap-4 px-4 py-3.5">
           <dt class="text-ink-500">Versão do banco</dt>

@@ -6,6 +6,13 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// Versão única: "version" do package.json. O versionCode segue a mesma regra do app
+// Cordova antigo (MAIOR*10000 + MENOR*100 + PATCH; ex.: 2.1.68 -> 20168, 3.0.0 -> 30000),
+// para que a atualização instale por cima da versão antiga.
+def appVersionName = new groovy.json.JsonSlurper().parse(file('../../package.json')).version
+def appVersionParts = appVersionName.tokenize('.').collect { it.toInteger() }
+def appVersionCode = appVersionParts[0] * 10000 + appVersionParts[1] * 100 + appVersionParts[2]
+
 android {
     namespace = "com.cordova.newfocus"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -22,8 +29,8 @@ android {
         applicationId "com.cordova.newfocus"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

@@ -4,7 +4,9 @@ import {
   SQLiteConnection,
   type SQLiteDBConnection,
 } from '@capacitor-community/sqlite'
-import { DB_NAME, SCHEMA_SQL } from './schema'
+import { DB_NAME, SCHEMA_SQL, SCHEMA_VERSION } from './schema'
+import { importLegacyDatabase } from './legacy'
+import { upgradeSchema } from './upgrade'
 
 let sqlite: SQLiteConnection | null = null
 let db: SQLiteDBConnection | null = null
@@ -23,18 +25,47 @@ async function connection(): Promise<SQLiteConnection> {
   return sqlite
 }
 
-export async function initDb(): Promise<void> {
+let initPromise: Promise<void> | null = null
+
+export function initDb(): Promise<void> {
+  // Uma única inicialização mesmo com chamadas concorrentes (evita importar/abrir duas vezes).
+  if (!initPromise) {
+    initPromise = doInitDb().catch((e) => {
+      initPromise = null
+      throw e
+    })
+  }
+  return initPromise
+}
+
+async function doInitDb(): Promise<void> {
   const conn = await connection()
+  // Instalado por cima do app Cordova antigo: traz o banco dele antes da primeira conexão.
+  const imported = await importLegacyDatabase()
+
   const consistent = await conn.checkConnectionsConsistency()
   const exists = (await conn.isConnection(DB_NAME, false)).result
 
+  let d: SQLiteDBConnection
   if (consistent.result && exists) {
-    db = await conn.retrieveConnection(DB_NAME, false)
+    d = await conn.retrieveConnection(DB_NAME, false)
   } else {
-    db = await conn.createConnection(DB_NAME, false, 'no-encryption', 1, false)
+    d = await conn.createConnection(DB_NAME, false, 'no-encryption', 1, false)
   }
-  await db.open()
-  await db.execute(SCHEMA_SQL)
+  await d.open()
+  await d.execute(SCHEMA_SQL)
+  await upgradeSchema(
+    async <T>(sql: string) => ((await d.query(sql)).values ?? []) as T[],
+    async (sql: string) => {
+      await d.execute(sql)
+    },
+  )
+  if (imported) {
+    // O usuário logado no app antigo continua logado; a versão gravada passa a ser a deste app
+    // (é a enviada na validação da sincronização).
+    await d.run('UPDATE usuario SET versao = ?', [SCHEMA_VERSION])
+  }
+  db = d
 }
 
 export async function getDb(): Promise<SQLiteDBConnection> {
