@@ -6,6 +6,7 @@ import FuncionariosField from '../components/FuncionariosField.vue'
 import Icon from '../components/Icon.vue'
 import SelectField from '../components/SelectField.vue'
 import { useToast } from '../composables/useToast'
+import { abrirSeletor } from '../lib/picker'
 import {
   lancarDiario,
   listarFuncionarios,
@@ -18,8 +19,9 @@ import {
 const { notify } = useToast()
 
 const ordens = ref<Opt[]>([])
-const disponiveis = ref<Opt[]>([])
+const funcionarios = ref<Opt[]>([])
 const selecionados = ref<Opt[]>([])
+const carregandoFunc = ref(false)
 
 const os = ref('')
 const data = ref('')
@@ -45,24 +47,18 @@ onMounted(async () => {
 
 async function onOsChange() {
   selecionados.value = []
-  disponiveis.value = []
+  funcionarios.value = []
   if (!os.value) return
-  disponiveis.value = await listarFuncionarios(os.value)
-}
-
-function addFunc(f: Opt) {
-  selecionados.value.push(f)
-  disponiveis.value = disponiveis.value.filter((x) => x.codigo !== f.codigo)
-}
-
-function addAll() {
-  selecionados.value.push(...disponiveis.value)
-  disponiveis.value = []
-}
-
-function removeFunc(f: Opt) {
-  selecionados.value = selecionados.value.filter((x) => x.codigo !== f.codigo)
-  disponiveis.value.push(f)
+  const alvo = os.value
+  carregandoFunc.value = true
+  try {
+    const lista = await listarFuncionarios(alvo)
+    if (os.value === alvo) funcionarios.value = lista
+  } catch {
+    msg.value = 'Não foi possível carregar os funcionários da OS. Verifique a internet e escolha a OS de novo.'
+  } finally {
+    if (os.value === alvo) carregandoFunc.value = false
+  }
 }
 
 function registrar(d: string, h: string) {
@@ -174,7 +170,7 @@ function reset() {
   obs.value = ''
   fotos.value = []
   selecionados.value = []
-  disponiveis.value = []
+  funcionarios.value = []
 }
 </script>
 
@@ -194,14 +190,7 @@ function reset() {
             @change="onOsChange"
           />
         </div>
-        <FuncionariosField
-          :disponiveis="disponiveis"
-          :selecionados="selecionados"
-          :disabled="!os"
-          @add="addFunc"
-          @add-all="addAll"
-          @remove="removeFunc"
-        />
+        <FuncionariosField v-model="selecionados" :funcionarios="funcionarios" :disabled="!os" :loading="carregandoFunc" />
       </section>
 
       <section class="panel p-4" aria-labelledby="horarios-title">
@@ -213,14 +202,14 @@ function reset() {
           </button>
         </div>
 
-        <div class="mt-3 grid grid-cols-[minmax(0,1fr)_6.5rem_auto] gap-2 items-end">
-          <label class="block">
+        <div class="mt-3 grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_auto] gap-2 items-end">
+          <label class="block min-w-0">
             <span class="label">Data</span>
-            <input v-model="data" type="date" class="input min-w-0" />
+            <input v-model="data" type="date" class="input input-datetime min-w-0" @click="abrirSeletor" />
           </label>
-          <label class="block">
+          <label class="block min-w-0">
             <span class="label">Hora</span>
-            <input v-model="hora" type="time" class="input min-w-0" />
+            <input v-model="hora" type="time" class="input input-datetime min-w-0" @click="abrirSeletor" />
           </label>
           <button type="button" class="btn btn-tonal px-3.5" aria-label="Adicionar horário" @click="addApontamento">
             <Icon name="plus" />

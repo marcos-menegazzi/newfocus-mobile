@@ -96,6 +96,12 @@ body {
   }
   textarea.input { @apply min-h-24 leading-relaxed; }
 
+  /* Data/hora em colunas estreitas: sem o ícone nativo (que roubava espaço e cortava
+     o texto) e com menos respiro lateral. O toque no campo inteiro abre o seletor. */
+  .input-datetime { @apply px-3 cursor-pointer; }
+  .input-datetime::-webkit-calendar-picker-indicator { display: none; }
+  .input-datetime::-webkit-datetime-edit { padding: 0; }
+
   .btn {
     @apply inline-flex items-center justify-center gap-2 min-h-12 px-4 rounded-[10px] text-[15px] font-semibold whitespace-nowrap transition select-none;
     @apply active:scale-[0.98] disabled:opacity-45 disabled:pointer-events-none;

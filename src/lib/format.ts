@@ -16,3 +16,9 @@ export function mudadata(d: string): string {
   const [y, m, day] = d.slice(0, 10).split('-')
   return `${day}/${m}/${y}`
 }
+
+/** Máscara de moeda: os dígitos digitados são centavos ("333" → 3,33). Vazio ou zero → null. */
+export function realDeDigitos(texto: string, maxDigitos = 11): number | null {
+  const digitos = texto.replace(/\D/g, '').replace(/^0+/, '').slice(0, maxDigitos)
+  return digitos ? Number(digitos) / 100 : null
+}

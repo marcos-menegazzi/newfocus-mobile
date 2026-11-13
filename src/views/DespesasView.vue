@@ -4,7 +4,9 @@ import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import AppShell from '../components/AppShell.vue'
 import FuncionariosField from '../components/FuncionariosField.vue'
 import Icon from '../components/Icon.vue'
+import MoneyInput from '../components/MoneyInput.vue'
 import SelectField from '../components/SelectField.vue'
+import { abrirSeletor } from '../lib/picker'
 import {
   lancarDespesa,
   listarContas,
@@ -16,8 +18,9 @@ import {
 
 const ordens = ref<Opt[]>([])
 const contas = ref<Opt[]>([])
-const disponiveis = ref<Opt[]>([])
+const funcionarios = ref<Opt[]>([])
 const selecionados = ref<Opt[]>([])
+const carregandoFunc = ref(false)
 
 const os = ref('')
 const conta = ref('')
@@ -46,24 +49,19 @@ onMounted(async () => {
 
 async function onOsChange() {
   selecionados.value = []
-  disponiveis.value = []
+  funcionarios.value = []
   if (!os.value) return
-  disponiveis.value = await listarFuncionarios(os.value)
-}
-
-function addFunc(f: Opt) {
-  selecionados.value.push(f)
-  disponiveis.value = disponiveis.value.filter((x) => x.codigo !== f.codigo)
-}
-
-function addAll() {
-  selecionados.value.push(...disponiveis.value)
-  disponiveis.value = []
-}
-
-function removeFunc(f: Opt) {
-  selecionados.value = selecionados.value.filter((x) => x.codigo !== f.codigo)
-  disponiveis.value.push(f)
+  const alvo = os.value
+  carregandoFunc.value = true
+  try {
+    const lista = await listarFuncionarios(alvo)
+    if (os.value === alvo) funcionarios.value = lista
+  } catch {
+    sucesso.value = false
+    msg.value = 'Não foi possível carregar os funcionários da OS. Verifique a internet e escolha a OS de novo.'
+  } finally {
+    if (os.value === alvo) carregandoFunc.value = false
+  }
 }
 
 async function capturar() {
@@ -82,7 +80,7 @@ async function apontar() {
   if (!os.value || Number(os.value) < 1) return (msg.value = 'OS deve ser selecionada')
   if (!conta.value) return (msg.value = 'Conta Financeira deve ser informada')
   if (!data.value) return (msg.value = 'Data deve ser informada')
-  if (!valor.value || valor.value < 1) return (msg.value = 'Valor deve ser informado')
+  if (!valor.value || valor.value <= 0) return (msg.value = 'Valor deve ser informado')
   if (selecionados.value.length < 1) return (msg.value = 'Deve ser informado ao menos um funcionário')
 
   loading.value = true
@@ -119,7 +117,7 @@ function reset() {
   obs.value = ''
   foto.value = null
   selecionados.value = []
-  disponiveis.value = []
+  funcionarios.value = []
 }
 </script>
 
@@ -136,23 +134,16 @@ function reset() {
           <SelectField v-model="conta" :options="contas.map((c) => ({ value: c.codigo, label: c.descricao }))" title="Selecionar conta financeira" placeholder="Selecione uma conta" empty="Nenhuma conta disponível" />
         </label>
         <div class="grid grid-cols-2 gap-3">
-          <label class="block">
+          <label class="block min-w-0">
             <span class="label">Data</span>
-            <input v-model="data" type="date" class="input" />
+            <input v-model="data" type="date" class="input input-datetime min-w-0" @click="abrirSeletor" />
           </label>
-          <label class="block">
-            <span class="label">Valor (R$)</span>
-            <input v-model.number="valor" type="number" inputmode="decimal" min="0" step="0.01" class="input" placeholder="0,00" />
+          <label class="block min-w-0">
+            <span class="label">Valor</span>
+            <MoneyInput v-model="valor" class="min-w-0" />
           </label>
         </div>
-        <FuncionariosField
-          :disponiveis="disponiveis"
-          :selecionados="selecionados"
-          :disabled="!os"
-          @add="addFunc"
-          @add-all="addAll"
-          @remove="removeFunc"
-        />
+        <FuncionariosField v-model="selecionados" :funcionarios="funcionarios" :disabled="!os" :loading="carregandoFunc" />
         <label class="block">
           <span class="label">Observações</span>
           <textarea v-model="obs" rows="3" class="input" />
