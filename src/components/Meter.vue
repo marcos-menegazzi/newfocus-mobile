@@ -21,7 +21,7 @@ const pct = computed(() => (props.max > 0 ? Math.min(100, Math.max(0, (props.val
   >
     <div
       class="h-full rounded-full transition-[width] duration-700 ease-out"
-      :class="tone === 'dark' ? 'bg-white' : 'bg-brand-600'"
+      :class="tone === 'dark' ? 'bg-accent-500' : 'bg-brand-600'"
       :style="{ width: `${pct}%` }"
     />
   </div>

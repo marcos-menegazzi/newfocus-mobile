@@ -2,50 +2,57 @@
 @import "@fontsource-variable/instrument-sans/wdth.css";
 
 @theme {
-  --color-mist: #f5f7fa;
-  --color-surface: #ffffff;
+  /* Paleta 60/30/10.
+     60 creme: fundo e superfícies. 30 azul-marinho: texto, barra do app, menu, destaques
+     e seleção. 10 vermelho: só a ação principal, a posição atual e o dado em foco. */
+  --color-cream: #f0e8d8;
+  --color-cream-dim: #c9bfad; /* texto secundário sobre o azul-marinho */
+  --color-surface: #fcf9f3;
 
-  /* Slate frio */
-  --color-ink-900: #0f172a;
-  --color-ink-700: #334155;
-  --color-ink-500: #526077;
-  --color-ink-400: #8391a7;
-  --color-ink-200: #e2e8f0;
-  --color-ink-100: #eef1f5;
-  --color-ink-50: #f7f9fb;
+  --color-ink-900: #1b3350;
+  --color-ink-700: #36495f;
+  --color-ink-500: #4a5b70;
+  --color-ink-400: #5c687a;
+  --color-ink-300: #a9a696;
+  --color-ink-200: #ddd1bb;
+  --color-ink-100: #e9dfcd;
+  --color-ink-50: #f6f0e4;
 
-  /* Azul cobalto */
-  --color-brand-50: #eaf0ff;
-  --color-brand-100: #dce6ff;
-  --color-brand-200: #b9ccff;
-  --color-brand-300: #8fb0ff;
-  --color-brand-600: #2553e6;
-  --color-brand-700: #1b3fb8;
-  --color-brand-800: #15318f;
-  --color-brand-900: #0f2466;
+  --color-brand-50: #e1e7ed;
+  --color-brand-100: #d0dae4;
+  --color-brand-200: #b0c0d0;
+  --color-brand-300: #8ca0b7;
+  --color-brand-500: #2f4d70;
+  --color-brand-600: #1b3350;
+  --color-brand-700: #122439;
 
-  --color-success-50: #e7f7ec;
-  --color-success-100: #ccefd8;
+  --color-accent-500: #f03a2a;
+  --color-accent-600: #d42a1b;
+
+  --color-success-50: #ddefd9;
+  --color-success-100: #c9e5c4;
   --color-success-300: #86efac;
   --color-success-600: #15803d;
   --color-success-800: #166534;
 
-  --color-sun-100: #fef3c7;
-  --color-sun-400: #f59e0b;
-  --color-sun-800: #92400e;
+  --color-sun-100: #fadf9e;
+  --color-sun-400: #d98404;
+  --color-sun-800: #7a3e06;
 
-  --color-info-100: #e0f2fe;
-  --color-info-600: #0284c7;
-  --color-info-800: #075985;
+  --color-info-100: #dce5ee;
+  --color-info-600: #3f6e9e;
+  --color-info-800: #1b3350;
 
-  --color-danger-100: #fee2e2;
-  --color-danger-600: #dc2626;
-  --color-danger-700: #b91c1c;
+  /* Vinho, para erro e exclusão não se confundirem com o vermelho de ação. */
+  --color-danger-100: #f7dce1;
+  --color-danger-300: #ff9a90; /* sobre o azul-marinho */
+  --color-danger-600: #b8163f;
+  --color-danger-700: #a3123f;
 
   --font-sans: "Instrument Sans Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
 
-  --shadow-sheet: 0 -8px 32px rgb(15 23 42 / 0.16);
-  --shadow-pop: 0 6px 24px rgb(15 23 42 / 0.18);
+  --shadow-sheet: 0 -8px 32px rgb(27 51 80 / 0.16);
+  --shadow-pop: 0 6px 24px rgb(27 51 80 / 0.18);
 }
 
 html, body, #app {
@@ -56,7 +63,7 @@ html, body, #app {
 
 body {
   font-family: var(--font-sans);
-  background: var(--color-mist);
+  background: var(--color-cream);
   color: var(--color-ink-900);
   overscroll-behavior-y: none;
   -webkit-font-smoothing: antialiased;
@@ -65,6 +72,12 @@ body {
 :focus-visible {
   outline: 2px solid var(--color-brand-600);
   outline-offset: 2px;
+}
+.on-navy :focus-visible { outline-color: var(--color-cream); }
+
+::selection {
+  background: var(--color-brand-600);
+  color: var(--color-cream);
 }
 
 /* Somam a área segura do aparelho a um respiro opcional (--pad-top / --pad-bottom),
@@ -90,7 +103,7 @@ body {
   }
   select.input {
     @apply appearance-none pr-10 bg-no-repeat;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23526077' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234a5b70' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     background-size: 18px;
     background-position: right 12px center;
   }
@@ -107,15 +120,27 @@ body {
     @apply active:scale-[0.98] disabled:opacity-45 disabled:pointer-events-none;
   }
   .btn-sm { @apply min-h-9 px-3 text-sm rounded-lg; }
-  .btn-primary { @apply bg-brand-600 text-white active:bg-brand-700; }
+  .btn-primary {
+    @apply bg-accent-500 text-white font-bold active:bg-accent-600;
+    @apply disabled:bg-ink-200 disabled:text-ink-500 disabled:opacity-100;
+  }
   .btn-secondary { @apply bg-surface text-ink-900 border border-ink-200 active:bg-ink-50; }
-  .btn-tonal { @apply bg-ink-100 text-ink-900 active:bg-ink-200; }
+  .btn-tonal { @apply bg-brand-50 text-brand-600 active:bg-brand-100; }
   .btn-ghost { @apply text-ink-700 active:bg-ink-100; }
   .btn-danger { @apply bg-danger-100 text-danger-700 active:bg-danger-100/70; }
 
   .icon-btn {
     @apply inline-flex items-center justify-center h-10 w-10 shrink-0 rounded-full text-ink-700 transition active:bg-ink-100;
     @apply disabled:opacity-35 disabled:pointer-events-none;
+  }
+
+  /* Barra do app: controles sobre o azul-marinho. */
+  .app-bar { @apply bg-brand-600 text-cream; }
+  .app-bar .icon-btn { @apply text-cream active:bg-brand-500; }
+  .app-bar .btn-secondary { @apply bg-transparent text-cream border-brand-300 active:bg-brand-500; }
+
+  .link {
+    @apply text-sm font-semibold text-brand-600 underline decoration-accent-500 decoration-2 underline-offset-4 active:text-accent-600;
   }
 
   .page { @apply px-4 pt-4 pb-10 space-y-4; }

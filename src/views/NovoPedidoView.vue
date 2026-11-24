@@ -950,7 +950,7 @@ watch(
     </template>
 
     <nav
-      class="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-10 bg-mist/95 backdrop-blur-md border-b border-ink-200 px-4 pt-2 pb-3"
+      class="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-10 bg-cream/95 backdrop-blur-md border-b border-ink-200 px-4 pt-2 pb-3"
       aria-label="Etapas do pedido"
     >
       <ol class="grid grid-cols-4 gap-1.5">
@@ -962,10 +962,10 @@ watch(
             :disabled="i > step && !!bloqueio(i)"
             @click="goTo(i)"
           >
-            <span class="block h-1 rounded-full" :class="i <= step ? 'bg-brand-600' : 'bg-ink-200'" />
+            <span class="block h-1 rounded-full" :class="i === step ? 'bg-accent-500' : i < step ? 'bg-brand-600' : 'bg-ink-200'" />
             <span
               class="mt-1.5 flex items-center gap-1 text-xs whitespace-nowrap"
-              :class="step === i ? 'font-semibold text-brand-700' : i < step ? 'text-ink-700' : 'text-ink-500'"
+              :class="step === i ? 'font-semibold text-brand-600' : i < step ? 'text-ink-700' : 'text-ink-500'"
             >
               <Icon v-if="i < step" name="check" :size="13" :stroke="2.6" class="text-brand-600" />
               <template v-else>{{ i + 1 }}.</template>
@@ -997,7 +997,7 @@ watch(
 
         <section class="panel p-4 space-y-4">
           <button type="button" class="input text-left flex items-center gap-3 py-3" @click="abrirCliente">
-            <span class="h-10 w-10 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center shrink-0">
+            <span class="h-10 w-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
               <Icon name="users" />
             </span>
             <span class="min-w-0 flex-1">
@@ -1005,7 +1005,7 @@ watch(
               <span v-else class="block text-ink-400">Selecionar cliente</span>
               <span v-if="cliente.codigo" class="block meta truncate">Crédito disponível R$ {{ formatReal(cliente.credito) }}</span>
             </span>
-            <span class="text-sm font-semibold text-brand-700">{{ cliente.codigo ? 'Trocar' : 'Escolher' }}</span>
+            <span class="link">{{ cliente.codigo ? 'Trocar' : 'Escolher' }}</span>
           </button>
           <template v-if="cliente.codigo">
             <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
@@ -1149,7 +1149,7 @@ watch(
               <div class="min-w-0 flex-1">
                 <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ i.descricao }}</p>
                 <p class="meta tabular-nums mt-0.5">{{ i.qtd }} × R$ {{ formatReal(i.vlunit) }}</p>
-                <p v-if="descontoLabel(i) !== '—'" class="text-xs text-brand-700 font-medium mt-0.5">Desconto {{ descontoLabel(i) }}</p>
+                <p v-if="descontoLabel(i) !== '—'" class="text-xs text-brand-600 font-medium mt-0.5">Desconto {{ descontoLabel(i) }}</p>
               </div>
               <p class="text-[15px] font-semibold tabular-nums shrink-0 pt-px">R$ {{ formatReal(i.vltotal) }}</p>
               <div class="flex shrink-0 -mt-1">
@@ -1301,7 +1301,7 @@ watch(
         <section class="panel p-4">
           <div class="flex items-baseline justify-between gap-3">
             <h2 class="text-[13px] font-medium text-ink-500">Cliente e condições</h2>
-            <button class="text-sm font-semibold text-brand-700" @click="goTo(0)">Editar</button>
+            <button class="link" @click="goTo(0)">Editar</button>
           </div>
           <p class="mt-1.5 text-[15px] font-semibold">{{ cliente.fantasia || cliente.razao || 'Cliente não informado' }}</p>
           <p class="mt-0.5 text-sm text-ink-700">{{ condicoesResumo || 'Condições não informadas' }}</p>
@@ -1311,14 +1311,14 @@ watch(
         <section class="panel p-4">
           <div class="flex items-baseline justify-between gap-3 mb-1.5">
             <h2 class="text-[13px] font-medium text-ink-500">Produtos</h2>
-            <button class="text-sm font-semibold text-brand-700" @click="goTo(1)">Editar</button>
+            <button class="link" @click="goTo(1)">Editar</button>
           </div>
           <p v-if="itens.length === 0" class="text-sm text-ink-500">Nenhum item.</p>
           <div v-for="i in itens.slice(0, 6)" :key="i.idpedido" class="flex justify-between gap-3 py-1.5 text-sm">
             <span class="min-w-0 truncate">{{ i.qtd }} × {{ i.descricao }}</span>
             <span class="font-semibold tabular-nums shrink-0">R$ {{ formatReal(i.vltotal) }}</span>
           </div>
-          <button v-if="itens.length > 6" class="mt-1 text-sm font-medium text-brand-700" @click="goTo(1); prodView = 'pedido'">
+          <button v-if="itens.length > 6" class="mt-1 link" @click="goTo(1); prodView = 'pedido'">
             Ver mais {{ itens.length - 6 }} {{ itens.length - 6 === 1 ? 'item' : 'itens' }}
           </button>
         </section>
@@ -1326,7 +1326,7 @@ watch(
         <section class="panel p-4">
           <div class="flex items-baseline justify-between gap-3 mb-1.5">
             <h2 class="text-[13px] font-medium text-ink-500">Pagamento</h2>
-            <button class="text-sm font-semibold text-brand-700" @click="goTo(2)">Editar</button>
+            <button class="link" @click="goTo(2)">Editar</button>
           </div>
           <div v-for="pa in parcelas" :key="pa.idfinanceiro" class="flex justify-between gap-3 py-1.5 text-sm">
             <span class="min-w-0 truncate">{{ pa.cobdesc || pa.cobranca }}, {{ pa.condesc || pa.condicao }}</span>
@@ -1436,7 +1436,7 @@ watch(
               <span class="block text-[15px] font-medium">{{ o.operacao }}</span>
               <span class="meta">Cobrança {{ o.cobranca }}, local {{ o.local }}</span>
             </span>
-            <Icon v-if="store.cabecalho.operacao === o.operacao" name="check" class="text-brand-700" :stroke="2.4" />
+            <Icon v-if="store.cabecalho.operacao === o.operacao" name="check" class="text-brand-600" :stroke="2.4" />
           </button>
         </li>
       </ul>
@@ -1448,7 +1448,7 @@ watch(
         <li v-for="c in cargas" :key="c.codigo">
           <button class="list-row px-5 flex items-center justify-between gap-3" @click="aplicarCarga(c)">
             <span class="text-[15px] font-medium">{{ c.descricao }}</span>
-            <Icon v-if="String(store.cabecalho.carga) === String(c.codigo)" name="check" class="text-brand-700" :stroke="2.4" />
+            <Icon v-if="String(store.cabecalho.carga) === String(c.codigo)" name="check" class="text-brand-600" :stroke="2.4" />
           </button>
         </li>
       </ul>

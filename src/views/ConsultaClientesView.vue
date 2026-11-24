@@ -185,7 +185,7 @@ async function buscarGarantias() {
   <AppShell title="Clientes" :subtitle="searched ? `${clientes.length} encontrados` : undefined">
     <template #actions>
       <FilterButton :count="chips.length" class="mr-1" @click="abrirFiltros" />
-      <RouterLink :to="{ name: 'cliente-novo' }" class="icon-btn text-brand-700" aria-label="Novo cliente">
+      <RouterLink :to="{ name: 'cliente-novo' }" class="icon-btn" aria-label="Novo cliente">
         <Icon name="user-plus" :size="22" />
       </RouterLink>
     </template>

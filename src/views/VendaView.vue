@@ -79,7 +79,7 @@ GROUP BY h.produto, h.sequencia ORDER BY h.produto`
             <div class="min-w-0 flex-1">
               <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ i.descricao }}</p>
               <p class="meta tabular-nums mt-0.5">Cód. {{ i.produto }}, {{ i.quant }} × R$ {{ formatReal(i.vlunit) }}</p>
-              <p v-if="Number(i.vldescto) > 0" class="text-xs text-brand-700 font-medium mt-0.5 tabular-nums">Desconto R$ {{ formatReal(i.vldescto) }}</p>
+              <p v-if="Number(i.vldescto) > 0" class="text-xs text-brand-600 font-medium mt-0.5 tabular-nums">Desconto R$ {{ formatReal(i.vldescto) }}</p>
             </div>
             <p class="text-[15px] font-semibold tabular-nums shrink-0">R$ {{ formatReal(i.vltotal) }}</p>
           </li>

@@ -115,7 +115,7 @@ function escolher(o: SelectOption<V>) {
             <span class="block text-[15px] font-medium">{{ o.label }}</span>
             <span v-if="o.hint" class="meta">{{ o.hint }}</span>
           </span>
-          <Icon v-if="isSel(o)" name="check" class="text-brand-700" :stroke="2.4" />
+          <Icon v-if="isSel(o)" name="check" class="text-brand-600" :stroke="2.4" />
         </button>
       </li>
     </ul>

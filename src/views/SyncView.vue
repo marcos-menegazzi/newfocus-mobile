@@ -58,7 +58,7 @@ async function iniciar() {
         <div class="flex items-center gap-3">
           <div
             class="h-12 w-12 rounded-2xl flex items-center justify-center"
-            :class="store.error ? 'bg-danger-100 text-danger-700' : done ? 'bg-success-50 text-success-600' : 'bg-brand-50 text-brand-700'"
+            :class="store.error ? 'bg-danger-100 text-danger-700' : done ? 'bg-success-50 text-success-600' : 'bg-brand-50 text-brand-600'"
           >
             <Icon :name="store.error ? 'alert' : done ? 'check-circle' : 'sync'" :size="24" :class="{ 'animate-spin [animation-duration:2s]': store.running }" />
           </div>

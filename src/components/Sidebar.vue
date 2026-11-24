@@ -106,16 +106,16 @@ async function logout() {
     <div v-if="open" class="fixed inset-0 z-30 bg-ink-900/40" @click="emit('close')" />
   </Transition>
 
-  <aside class="sidebar" :class="{ open }" :aria-hidden="!open" aria-label="Menu principal">
-    <div class="safe-top [--pad-top:1.5rem] px-5 pb-4 border-b border-ink-100">
+  <aside class="sidebar on-navy" :class="{ open }" :aria-hidden="!open" aria-label="Menu principal">
+    <div class="safe-top [--pad-top:1.5rem] px-5 pb-4 border-b border-brand-500">
       <div class="flex items-center gap-3">
-        <Logo :height="44" />
+        <span class="rounded-xl bg-surface p-2"><Logo :height="40" /></span>
         <div class="min-w-0">
           <p class="font-semibold leading-tight">NewFocus</p>
-          <p class="text-ink-500 text-[13px] truncate">{{ auth.usuario?.usuario }}</p>
+          <p class="text-cream-dim text-[13px] truncate">{{ auth.usuario?.usuario }}</p>
         </div>
       </div>
-      <p v-if="!auth.isOs" class="mt-3 flex items-center gap-1.5 text-xs text-ink-500">
+      <p v-if="!auth.isOs" class="mt-3 flex items-center gap-1.5 text-xs text-cream-dim">
         <Icon name="sync" :size="14" />
         Sincronizado em {{ lastSync }}
       </p>
@@ -123,12 +123,12 @@ async function logout() {
 
     <nav class="flex-1 overflow-y-auto px-3 py-3">
       <div v-for="g in groups" :key="g.label" class="mb-3">
-        <p class="px-3 pt-2 pb-1 text-xs font-medium text-ink-400">{{ g.label }}</p>
+        <p class="px-3 pt-2 pb-1 text-xs font-medium text-cream-dim">{{ g.label }}</p>
         <button
           v-for="item in g.items"
           :key="item.name"
           class="w-full flex items-center gap-3 rounded-xl px-3 h-11 text-left text-[15px] transition-colors"
-          :class="isActive(item) ? 'bg-brand-50 text-brand-700 font-semibold' : 'text-ink-700 active:bg-ink-100'"
+          :class="isActive(item) ? 'bg-cream text-brand-600 font-semibold [&>svg]:text-accent-500' : 'text-cream active:bg-brand-500'"
           :aria-current="isActive(item) ? 'page' : undefined"
           :tabindex="open ? 0 : -1"
           @click="go(item.name)"
@@ -139,9 +139,9 @@ async function logout() {
       </div>
     </nav>
 
-    <div class="px-3 pt-2 border-t border-ink-100 safe-bottom [--pad-bottom:1rem]">
+    <div class="px-3 pt-2 border-t border-brand-500 safe-bottom [--pad-bottom:1rem]">
       <button
-        class="w-full flex items-center gap-3 rounded-xl px-3 h-11 text-left text-[15px] text-danger-700 active:bg-danger-100"
+        class="w-full flex items-center gap-3 rounded-xl px-3 h-11 text-left text-[15px] text-danger-300 active:bg-brand-500"
         :tabindex="open ? 0 : -1"
         @click="logout"
       >
@@ -158,7 +158,8 @@ async function logout() {
   inset: 0 auto 0 0;
   width: 296px;
   max-width: 84vw;
-  background: var(--color-surface);
+  background: var(--color-brand-600);
+  color: var(--color-cream);
   display: flex;
   flex-direction: column;
   transform: translateX(-100%);

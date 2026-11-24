@@ -16,7 +16,11 @@ app.use(router)
 app.mount('#app')
 
 if (Capacitor.isNativePlatform()) {
-  StatusBar.setStyle({ style: Style.Light })
-  StatusBar.setBackgroundColor({ color: '#f5f7fa' })
+  // A barra de status acompanha o topo da tela: creme no login, azul-marinho no resto.
+  router.afterEach((to) => {
+    const login = to.name === 'login'
+    StatusBar.setStyle({ style: login ? Style.Light : Style.Dark })
+    StatusBar.setBackgroundColor({ color: login ? '#f0e8d8' : '#1b3350' })
+  })
   SplashScreen.hide()
 }

@@ -84,13 +84,13 @@ onMounted(async () => {
 <template>
   <AppShell title="Início">
     <div class="page">
-      <section class="rounded-3xl bg-brand-800 text-white px-5 pt-5 pb-6" aria-labelledby="hero-title">
-        <p id="hero-title" class="text-brand-200 text-[15px]">Vendas faturadas em {{ mes }}</p>
+      <section class="rounded-3xl on-navy bg-brand-600 text-cream px-5 pt-5 pb-6" aria-labelledby="hero-title">
+        <p id="hero-title" class="text-cream-dim text-[15px]">Vendas faturadas em {{ mes }}</p>
         <p class="mt-2 flex items-baseline gap-1.5">
-          <span class="text-brand-200 text-xl font-medium">R$</span>
+          <span class="text-cream-dim text-xl font-medium">R$</span>
           <span class="figure text-[44px] sm:text-[52px] break-all">{{ formatReal(vendasTotal) }}</span>
         </p>
-        <p class="mt-1.5 text-brand-200 text-sm">{{ vendasLabel }}</p>
+        <p class="mt-1.5 text-cream-dim text-sm">{{ vendasLabel }}</p>
 
         <div class="mt-6 grid grid-cols-1 min-[420px]:grid-cols-2 gap-x-6 gap-y-5">
           <div>
@@ -99,7 +99,7 @@ onMounted(async () => {
               <span class="text-sm font-semibold tabular-nums">{{ pct(clientesPositivados, totalClientes) }}</span>
             </div>
             <Meter tone="dark" :value="clientesPositivados" :max="totalClientes" label="Clientes positivados no mês" />
-            <p class="mt-1.5 text-xs text-brand-200 tabular-nums">{{ clientesPositivados }} de {{ totalClientes }}</p>
+            <p class="mt-1.5 text-xs text-cream-dim tabular-nums">{{ clientesPositivados }} de {{ totalClientes }}</p>
           </div>
           <div>
             <div class="flex items-baseline justify-between gap-2 mb-2">
@@ -107,7 +107,7 @@ onMounted(async () => {
               <span class="text-sm font-semibold tabular-nums">{{ pct(produtosPositivados, totalProdutos) }}</span>
             </div>
             <Meter tone="dark" :value="produtosPositivados" :max="totalProdutos" label="Produtos positivados no mês" />
-            <p class="mt-1.5 text-xs text-brand-200 tabular-nums">{{ produtosPositivados }} de {{ totalProdutos }}</p>
+            <p class="mt-1.5 text-xs text-cream-dim tabular-nums">{{ produtosPositivados }} de {{ totalProdutos }}</p>
           </div>
         </div>
       </section>
@@ -143,7 +143,7 @@ onMounted(async () => {
       <section>
         <div class="flex items-center justify-between mb-2 px-1">
           <h2 class="section-title">Últimos pedidos</h2>
-          <RouterLink :to="{ name: 'pedidos' }" class="text-sm font-semibold text-brand-700 py-1">Ver todos</RouterLink>
+          <RouterLink :to="{ name: 'pedidos' }" class="link py-1">Ver todos</RouterLink>
         </div>
         <LoadingState v-if="loading" />
         <div v-else-if="ultimosPedidos.length === 0" class="panel">

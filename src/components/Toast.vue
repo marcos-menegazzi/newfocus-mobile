@@ -9,7 +9,7 @@ defineProps<{ items: ToastItem[] }>()
 const ICON: Record<ToastType, { name: string; cls: string }> = {
   info: { name: 'info', cls: 'text-white/80' },
   success: { name: 'check-circle', cls: 'text-success-300' },
-  error: { name: 'alert', cls: 'text-[#ff8f8f]' },
+  error: { name: 'alert', cls: 'text-danger-300' },
 }
 </script>
 

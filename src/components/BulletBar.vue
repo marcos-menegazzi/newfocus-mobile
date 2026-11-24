@@ -31,7 +31,7 @@ const targetX = computed(() => pct(props.target))
     />
     <div
       v-if="target > 0"
-      class="absolute top-0 bottom-0 w-0.5 -ml-px rounded-full bg-ink-900"
+      class="absolute top-0 bottom-0 w-0.5 -ml-px rounded-full bg-accent-500"
       :style="{ left: `${targetX}%` }"
     />
   </div>

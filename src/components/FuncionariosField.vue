@@ -82,7 +82,7 @@ function abrir() {
       <button
         v-if="!bloqueado"
         type="button"
-        class="-my-2 -mr-2 px-2 h-9 rounded-lg text-[13px] font-semibold text-brand-700 active:bg-brand-50 transition-colors"
+        class="-my-2 -mr-2 px-2 h-9 rounded-lg text-[13px] font-semibold text-brand-600 active:bg-brand-50 transition-colors"
         @click="alternarTodos"
       >
         {{ todos ? 'Limpar' : 'Adicionar todos' }}
@@ -113,7 +113,7 @@ function abrir() {
         @click="abrir"
       >
         <span class="avatar avatar-add" aria-hidden="true"><Icon :name="todos ? 'edit' : 'plus'" :size="16" :stroke="2.2" /></span>
-        <span class="flex-1 text-[15px] font-semibold text-brand-700">{{ todos ? 'Alterar seleção' : 'Adicionar funcionário' }}</span>
+        <span class="flex-1 text-[15px] font-semibold text-brand-600">{{ todos ? 'Alterar seleção' : 'Adicionar funcionário' }}</span>
         <span class="meta tabular-nums">{{ qtd }} de {{ total }}</span>
       </button>
     </div>
@@ -206,7 +206,7 @@ function abrir() {
   height: 2rem;
   border-radius: 9999px;
   background: var(--color-brand-50);
-  color: var(--color-brand-800);
+  color: var(--color-brand-600);
   font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.02em;
@@ -214,7 +214,7 @@ function abrir() {
 .avatar-add {
   background: var(--color-surface);
   border: 1.5px dashed var(--color-brand-300);
-  color: var(--color-brand-700);
+  color: var(--color-brand-600);
 }
 
 .box {
@@ -227,7 +227,7 @@ function abrir() {
   border-radius: 0.375rem;
   border: 1.5px solid var(--color-ink-200);
   background: var(--color-surface);
-  color: var(--color-brand-700);
+  color: var(--color-brand-600);
   transition:
     background-color 0.15s,
     border-color 0.15s;

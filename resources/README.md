@@ -5,7 +5,7 @@ Source images for app icon and splash screen generation.
 - `logo-mark.svg` — vector trace of the NewFocus mark (from `src/assets/logo.png`).
   Every icon and splash below is rendered from it.
 - `icon.png` — 1024x1024 app icon (mark on white).
-- `splash.png` — 2732x2732 splash (mark centered on white).
+- `splash.png` — 2732x2732 splash (mark centered on cream `#F0E8D8`).
 
 Android (`android/app/src/main/res`):
 
@@ -14,6 +14,6 @@ Android (`android/app/src/main/res`):
   (`values/ic_launcher_background.xml`).
 - `mipmap-*/ic_launcher.png` / `ic_launcher_round.png` — legacy icons (pre Android 8).
 - `drawable*/splash.png` — splash for Android < 12. On 12+ the system splash shows
-  the adaptive foreground on white (`values/styles.xml`).
+  the adaptive foreground on `#F0E8D8` (`values/styles.xml`).
 
 iOS: `AppIcon.appiconset/AppIcon-512@2x.png` and `Splash.imageset/*`.

@@ -24,10 +24,10 @@ function goBack() {
 </script>
 
 <template>
-  <div ref="root" class="min-h-screen bg-mist text-ink-900 flex flex-col">
+  <div ref="root" class="min-h-screen bg-cream text-ink-900 flex flex-col">
     <Sidebar :open="open" @close="open = false" />
 
-    <header class="sticky top-0 z-20 bg-mist/92 backdrop-blur-md border-b border-ink-200/70 safe-top">
+    <header class="sticky top-0 z-20 app-bar on-navy safe-top">
       <div class="flex items-center gap-1 h-14 px-2 max-w-2xl mx-auto">
         <button v-if="back" class="icon-btn" aria-label="Voltar" @click="goBack">
           <Icon name="back" :size="22" />
@@ -37,7 +37,7 @@ function goBack() {
         </button>
         <div class="min-w-0 flex-1 px-1">
           <h1 class="text-[17px] font-semibold leading-tight truncate">{{ title ?? 'NewFocus' }}</h1>
-          <p v-if="subtitle" class="text-xs text-ink-500 truncate">{{ subtitle }}</p>
+          <p v-if="subtitle" class="text-xs text-cream-dim truncate">{{ subtitle }}</p>
         </div>
         <div class="flex items-center gap-1 shrink-0">
           <slot name="actions" />

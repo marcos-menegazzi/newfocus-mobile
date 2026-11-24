@@ -12,13 +12,13 @@ const emit = defineEmits<{ (e: 'remove', key: string): void; (e: 'open'): void }
     <span
       v-for="c in items"
       :key="c.key"
-      class="inline-flex items-center shrink-0 h-8 rounded-full bg-brand-50 border border-brand-100 text-brand-800 text-[13px] font-medium"
+      class="inline-flex items-center shrink-0 h-8 rounded-full bg-brand-50 border border-brand-100 text-brand-600 text-[13px] font-medium"
     >
       <button type="button" class="pl-3 h-full" :class="c.removable === false ? 'pr-3' : 'pr-1'" @click="emit('open')">{{ c.label }}</button>
       <button
         v-if="c.removable !== false"
         type="button"
-        class="h-full pl-1 pr-2.5 text-brand-700"
+        class="h-full pl-1 pr-2.5 text-brand-600"
         :aria-label="`Remover filtro ${c.label}`"
         @click="emit('remove', c.key)"
       >

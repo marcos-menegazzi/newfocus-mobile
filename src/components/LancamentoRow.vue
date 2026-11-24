@@ -10,7 +10,7 @@ defineEmits<{ (e: 'open'): void }>()
   <button class="list-row flex items-center gap-3" @click="$emit('open')">
     <span
       class="h-10 w-10 rounded-xl flex items-center justify-center shrink-0"
-      :class="item.tipo === 'Despesa' ? 'bg-sun-100 text-sun-800' : 'bg-brand-50 text-brand-700'"
+      :class="item.tipo === 'Despesa' ? 'bg-sun-100 text-sun-800' : 'bg-brand-50 text-brand-600'"
     >
       <Icon :name="item.tipo === 'Despesa' ? 'receipt' : 'clock'" />
     </span>

@@ -241,7 +241,7 @@ onMounted(async () => {
                 <dd class="mt-1 text-[17px] font-semibold tabular-nums">R$ {{ formatReal(resumo.realizado) }}</dd>
               </div>
               <div class="rounded-xl bg-ink-50 px-3.5 py-3">
-                <dt class="meta flex items-center gap-1.5"><span class="h-3 w-0.5 rounded-full bg-ink-900" aria-hidden="true" /> Objetivo</dt>
+                <dt class="meta flex items-center gap-1.5"><span class="h-3 w-0.5 rounded-full bg-accent-500" aria-hidden="true" /> Objetivo</dt>
                 <dd class="mt-1 text-[17px] font-semibold tabular-nums">R$ {{ formatReal(resumo.objetivo) }}</dd>
               </div>
             </dl>
@@ -265,7 +265,7 @@ onMounted(async () => {
               <div class="flex flex-wrap gap-x-4 gap-y-1 px-5 pb-2 text-xs text-ink-500">
                 <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-3 rounded-sm bg-brand-600" aria-hidden="true" /> Realizado</span>
                 <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-3 rounded-sm bg-brand-200/70" aria-hidden="true" /> Até o objetivo</span>
-                <span class="inline-flex items-center gap-1.5"><span class="h-3 w-0.5 rounded-full bg-ink-900" aria-hidden="true" /> Objetivo</span>
+                <span class="inline-flex items-center gap-1.5"><span class="h-3 w-0.5 rounded-full bg-accent-500" aria-hidden="true" /> Objetivo</span>
               </div>
               <ul class="divide-y divide-ink-100">
                 <li v-for="r in parsed" :key="r.i">

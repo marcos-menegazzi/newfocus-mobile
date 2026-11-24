@@ -34,7 +34,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-surface flex flex-col">
+  <div class="min-h-screen bg-cream flex flex-col">
     <div class="safe-top [--pad-top:3rem] px-6 pb-6 flex flex-col items-center text-center">
       <Logo variant="full" :height="148" />
       <p class="mt-4 text-ink-500 text-[15px]">Pedidos, clientes e metas no seu bolso.</p>
