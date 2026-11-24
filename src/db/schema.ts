@@ -38,7 +38,8 @@ export const TABLES: string[] = [
       tipo CHAR(1), comissao DOUBLE(10,0), complemento VARCHAR(200), idunico VARCHAR(100),
       numero VARCHAR(10), snunidade CHAR(1), snquilo CHAR(1), valor_quilo DOUBLE(14,2),
       valor_unidade DOUBLE(14,2), peso_total DOUBLE(18,6), retsuc DOUBLE(18,6),
-      resolvido CHAR(1), cliente_nome VARCHAR(60), cliente_cpf CHAR(20), vendedor DOUBLE(6,0)
+      resolvido CHAR(1), cliente_nome VARCHAR(60), cliente_cpf CHAR(20), vendedor DOUBLE(6,0),
+      etapa INTEGER
   )`,
   `CREATE TABLE IF NOT EXISTS mped (
       idpedido INTEGER NOT NULL PRIMARY KEY, numpedido CHAR(10), codproduto CHAR(18),

@@ -90,6 +90,13 @@ export async function query<T>(sql: string, values: unknown[] = []): Promise<T[]
   return (r.values ?? []) as T[]
 }
 
+export async function saveWebDb(): Promise<void> {
+  if (Capacitor.getPlatform() === 'web') {
+    const conn = await connection()
+    await conn.saveToStore(DB_NAME)
+  }
+}
+
 export async function execute(sql: string): Promise<void> {
   const d = await getDb()
   await d.execute(sql)

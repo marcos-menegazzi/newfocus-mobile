@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { App } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
@@ -9,7 +11,7 @@ import SearchField from '../components/SearchField.vue'
 import Segmented from '../components/Segmented.vue'
 import Sheet from '../components/Sheet.vue'
 import StatusChip from '../components/StatusChip.vue'
-import { query } from '../db/connection'
+import { query, run, saveWebDb } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
 import { getfator, isCondAvista } from '../services/pedido/calc'
 import { calcPreco } from '../services/pedido/preco'
@@ -46,6 +48,7 @@ const STEPS = [
   { label: 'Revisão', next: '' },
 ]
 const step = ref(0)
+let mudandoEtapa = false
 const prodView = ref<'buscar' | 'pedido'>('buscar')
 const showAcoes = ref(false)
 const STATUS_LABEL: Record<string, string> = {
@@ -122,11 +125,22 @@ const condicaoNome = computed(() => nome(condicoes.value, 'codigo', store.cabeca
 const tabelaNome = computed(() => nome(tabelas.value, 'codigo', store.cabecalho.tabela, 'descricao'))
 const comissaoNome = computed(() => nome(comissoes.value, 'codigo', store.cabecalho.comissao, 'descricao'))
 const tipoLabel = computed(() => ({ S: 'Saída', E: 'Entrada', O: 'Orçamento' } as Record<string, string>)[store.cabecalho.tipo] ?? '')
-const condicoesResumo = computed(() =>
-  [empresaNome.value, store.cabecalho.operacao, condicaoNome.value, tabelaNome.value && `tabela ${tabelaNome.value}`, cargaLabel.value !== 'Selecionar carga' && `carga ${cargaLabel.value}`]
-    .filter(Boolean)
-    .join(', '),
-)
+const razaoRevisao = computed(() => cliente.razao || store.cabecalho.cliente_nome)
+const clienteRevisao = computed(() => cliente.fantasia || razaoRevisao.value || 'Cliente não informado')
+const condicoesRevisao = computed(() => {
+  const cab = store.cabecalho
+  return [
+    { label: 'Condição de pagamento', valor: condicaoNome.value || cab.condpag },
+    { label: 'Tabela de preço', valor: tabelaNome.value || cab.tabela },
+    { label: 'Empresa', valor: empresaNome.value || cab.empresa },
+    { label: 'Operação', valor: cab.operacao },
+    { label: 'Tipo de pedido', valor: tipoLabel.value },
+    { label: 'Data do pedido', valor: cab.data && mudadata(cab.data) },
+    { label: 'Carga', valor: cab.carga && (cargaLabel.value === 'Selecionar carga' ? cab.carga : cargaLabel.value) },
+    { label: 'Vendedor', valor: vendedorNome.value || cab.vendedor },
+    { label: 'Comissão', valor: comissaoNome.value || cab.comissao },
+  ]
+})
 
 // Motivo que impede abrir a etapa i (null = pode abrir).
 function bloqueio(i: number): string | null {
@@ -136,23 +150,34 @@ function bloqueio(i: number): string | null {
 }
 
 async function goTo(i: number) {
-  if (i === step.value || i < 0 || i >= STEPS.length) return
+  if (mudandoEtapa || i === step.value || i < 0 || i >= STEPS.length) return
   const err = i > step.value ? bloqueio(i) : null
   if (err) {
     notify(err)
     return
   }
+  mudandoEtapa = true
   try {
     // Ao sair do cabeçalho o pedido já é gravado (rascunho, sem itens): se o app
     // fechar, o vendedor retoma pela lista de pedidos em vez de recomeçar.
     if (i >= 1 && !store.cabecalho.numpedido) await store.salvar()
     else await persistTotal()
+    await salvarEtapa(i)
+    step.value = i
+    window.scrollTo({ top: 0 })
   } catch (e) {
     notify(msg(e), 'error')
-    return
+  } finally {
+    mudandoEtapa = false
   }
-  step.value = i
-  window.scrollTo({ top: 0 })
+}
+
+async function salvarEtapa(etapa: number) {
+  const pedido = store.cabecalho
+  if (!pedido.numpedido) return
+  await run('UPDATE ped SET etapa = ? WHERE numpedido = ?', [etapa, pedido.numpedido])
+  await saveWebDb()
+  pedido.etapa = etapa
 }
 
 // Assim que o pedido novo ganha número, a URL passa a apontar para ele
@@ -917,6 +942,7 @@ async function transformar() {
 async function duplicar() {
   try {
     await store.duplicar()
+    await salvarEtapa(3)
     await router.push(`/pedidos/${store.cabecalho.numpedido}`)
     await refreshItens()
     await refreshParcelas()
@@ -926,6 +952,34 @@ async function duplicar() {
     notify(msg(e), 'error')
   }
 }
+
+let listenerVoltarAndroid: ReturnType<typeof App.addListener> | undefined
+
+onMounted(() => {
+  if (Capacitor.getPlatform() !== 'android') return
+  listenerVoltarAndroid = App.addListener('backButton', async ({ canGoBack }) => {
+    if (mudandoEtapa) return
+    if (step.value > 0) {
+      const etapaAnterior = step.value - 1
+      await goTo(etapaAnterior)
+      if (step.value === etapaAnterior) {
+        showAcoes.value = false
+        modal.open = false
+      }
+      return
+    }
+    if (canGoBack) router.back()
+    else await router.push({ name: auth.homeRoute })
+  })
+  void listenerVoltarAndroid.catch((e) => console.error('Falha ao ouvir o botão Voltar do Android', e))
+})
+
+onBeforeUnmount(() => {
+  void listenerVoltarAndroid?.then(
+    (listener) => listener.remove().catch((e) => console.error('Falha ao remover o listener do Android', e)),
+    () => {},
+  )
+})
 
 onMounted(async () => {
   ;[empresas.value, vendedores.value, condicoes.value, tabelas.value, cargas.value, comissoes.value, cobrancas.value] =
@@ -951,8 +1005,7 @@ function rotaNumpedido(): string {
 async function carregarRota() {
   const n = rotaNumpedido()
   Object.assign(cliente, { id: 0, codigo: 0, fantasia: '', razao: '', cnpj: '', limcred: 0, credito: 0, saldo: 0 })
-  produtos.value = []
-  prodSearched.value = false
+  limparProdutos()
   prodView.value = 'buscar'
   if (n) {
     await store.carregar(n)
@@ -965,10 +1018,22 @@ async function carregarRota() {
   preloadNegociacao()
   await refreshItens()
   await refreshParcelas()
-  // Pedido existente abre na revisão; dali cada etapa é editável.
-  // Rascunho (aberto e sem itens) volta direto para a inclusão de produtos.
-  if (!n) step.value = 0
-  else step.value = store.pedstatus === 'A' && itens.value.length === 0 ? 1 : 3
+  const etapa = store.cabecalho.etapa
+  if (!n) {
+    step.value = 0
+    return
+  }
+  const etapaSalva = typeof etapa === 'number' && Number.isInteger(etapa) && etapa >= 0 && etapa < STEPS.length
+  const etapaInicial = etapaSalva ? etapa : store.pedstatus === 'A' && itens.value.length === 0 ? 1 : 3
+  if (step.value === 1 && etapaInicial === 1 && store.cabecalho.tabela) void buscarProdutos()
+  step.value = etapaInicial
+  if (!etapaSalva) {
+    try {
+      await salvarEtapa(etapaInicial)
+    } catch (e) {
+      notify(msg(e), 'error')
+    }
+  }
 }
 
 // A mesma tela é reaproveitada entre pedidos: recarrega quando a rota aponta
@@ -1346,14 +1411,41 @@ watch(
           </p>
         </div>
 
-        <section class="panel p-4">
-          <div class="flex items-baseline justify-between gap-3">
-            <h2 class="text-[13px] font-medium text-ink-500">Cliente e condições</h2>
-            <button class="link" @click="goTo(0)">Editar</button>
+        <section class="panel overflow-hidden" aria-labelledby="revisao-cliente">
+          <div class="p-4">
+            <div class="flex items-baseline justify-between gap-3">
+              <h2 id="revisao-cliente" class="section-title">Cliente</h2>
+              <button type="button" class="link" aria-label="Editar cliente e condições" @click="goTo(0)">Editar</button>
+            </div>
+            <div class="mt-3 flex items-start gap-3">
+              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600" aria-hidden="true">
+                <Icon name="users" />
+              </span>
+              <div class="min-w-0">
+                <p class="break-words text-base font-semibold leading-snug">{{ clienteRevisao }}</p>
+                <p v-if="razaoRevisao && razaoRevisao !== clienteRevisao" class="mt-0.5 break-words text-sm text-ink-700">{{ razaoRevisao }}</p>
+              </div>
+            </div>
+            <dl v-if="cliente.codigo || store.cabecalho.clifor || cliente.cnpj || store.cabecalho.cliente_cpf" class="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <div v-if="cliente.codigo || store.cabecalho.clifor">
+                <dt class="meta">Código do cliente</dt>
+                <dd class="font-medium tabular-nums">{{ cliente.codigo || store.cabecalho.clifor }}</dd>
+              </div>
+              <div v-if="cliente.cnpj || store.cabecalho.cliente_cpf" class="min-w-0">
+                <dt class="meta">CNPJ/CPF</dt>
+                <dd class="break-words font-medium tabular-nums">{{ cliente.cnpj || store.cabecalho.cliente_cpf }}</dd>
+              </div>
+            </dl>
           </div>
-          <p class="mt-1.5 text-[15px] font-semibold">{{ cliente.fantasia || cliente.razao || 'Cliente não informado' }}</p>
-          <p class="mt-0.5 text-sm text-ink-700">{{ condicoesResumo || 'Condições não informadas' }}</p>
-          <p class="mt-0.5 meta">{{ [tipoLabel, mudadata(store.cabecalho.data), vendedorNome && `vendedor ${vendedorNome}`, comissaoNome && `comissão ${comissaoNome}`].filter(Boolean).join(', ') }}</p>
+          <div class="border-t border-ink-100 p-4">
+            <h3 class="section-title">Condições do pedido</h3>
+            <dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
+              <div v-for="campo in condicoesRevisao" :key="campo.label" class="min-w-0">
+                <dt class="meta">{{ campo.label }}</dt>
+                <dd class="break-words font-medium">{{ campo.valor || '—' }}</dd>
+              </div>
+            </dl>
+          </div>
         </section>
 
         <section class="panel p-4">
