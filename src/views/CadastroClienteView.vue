@@ -7,6 +7,7 @@ import SelectField from '../components/SelectField.vue'
 import Segmented from '../components/Segmented.vue'
 import { query, run } from '../db/connection'
 import { useAuthStore } from '../stores/auth'
+import { consultarCnpj } from '../services/receitaWs'
 import { removechar } from '../services/sync/helpers'
 import estadosCidades from '../assets/estados_cidades.json'
 import { useToast } from '../composables/useToast'
@@ -108,7 +109,7 @@ function validaCPF(cpf: string): boolean {
 }
 
 function validaCNPJ(cnpj: string): boolean {
-  if (/^(\d)\1{13}$/.test(cnpj)) return false
+  if (!/^\d{14}$/.test(cnpj) || /^(\d)\1{13}$/.test(cnpj)) return false
   const calc = (n: number) => {
     const pesos = n === 12
       ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
@@ -129,6 +130,7 @@ function validaCpfCnpj(val: string): boolean {
 }
 
 async function buscarCnpj() {
+  if (lookupLoading.value) return
   lookupMsg.value = ''
   const cnpj = form.cnpj.replace(/\D/g, '')
   if (!validaCNPJ(cnpj)) {
@@ -136,31 +138,12 @@ async function buscarCnpj() {
     return
   }
   lookupLoading.value = true
+  const mesmoDocumento = () => form.cnpj.replace(/\D/g, '') === cnpj
   try {
-    const res = await fetch(`https://receitaws.com.br/v1/cnpj/${cnpj}`)
-    const r = await res.json()
-    if (r.status === 'ERROR') {
-      lookupMsg.value = 'CNPJ não localizado'
-      return
-    }
-    form.razao = r.razao_social || r.nome || ''
-    form.fantasia = r.fantasia || ''
-    form.endereco = r.logradouro || ''
-    form.numero = r.numero || ''
-    form.cj = r.complemento || ''
-    form.bairro = r.bairro || ''
-    form.cep = r.cep || ''
-    form.estado = r.uf || ''
-    form.cidade = removechar(String(r.municipio ?? '')).toUpperCase()
-    const tel = (r.telefone || '').replace(/\D/g, '')
-    form.ddd = tel.slice(0, 2)
-    form.tel1 = tel.slice(2)
-    form.email = r.email || ''
-    form.emailnfe = r.email || ''
-    form.simples = r.simples && r.simples.optante ? 'S' : 'N'
-    form.tippess = 'N'
-  } catch {
-    lookupMsg.value = 'Não foi possível buscar o CNPJ. Verifique sua conexão.'
+    const dados = await consultarCnpj(cnpj)
+    if (mesmoDocumento()) Object.assign(form, dados)
+  } catch (e) {
+    if (mesmoDocumento()) lookupMsg.value = e instanceof Error ? e.message : 'Não foi possível consultar a ReceitaWS.'
   } finally {
     lookupLoading.value = false
   }
