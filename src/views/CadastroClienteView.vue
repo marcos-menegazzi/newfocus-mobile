@@ -71,6 +71,8 @@ const SIM_NAO = [{ value: 'S', label: 'Sim' }, { value: 'N', label: 'Não' }]
 
 const lookupLoading = ref(false)
 const lookupMsg = ref('')
+const documento = computed(() => form.cnpj.replace(/\D/g, ''))
+const podeBuscarCnpj = computed(() => !lookupLoading.value && validaCNPJ(documento.value))
 
 const FIELDS = [
   'fantasia', 'bairro', 'cep', 'cj', 'contato', 'ddd', 'email',
@@ -88,7 +90,7 @@ onMounted(async () => {
   const row = rows[0]
   for (const k of FIELDS) {
     const v = row[k]
-    if (v != null) form[k] = String(v)
+    if (v != null) form[k] = k === 'cnpj' ? mascararDocumento(String(v).replace(/\D/g, '').slice(0, 14)) : String(v)
   }
   form.obs = row.obs == null ? '' : String(row.obs)
   form.cidade = removechar(String(row.cidade ?? '')).toUpperCase()
@@ -129,16 +131,43 @@ function validaCpfCnpj(val: string): boolean {
   return false
 }
 
-async function buscarCnpj() {
-  if (lookupLoading.value) return
-  lookupMsg.value = ''
-  const cnpj = form.cnpj.replace(/\D/g, '')
-  if (!validaCNPJ(cnpj)) {
-    lookupMsg.value = 'CNPJ inválido'
-    return
+function mascararDocumento(digitos: string): string {
+  if (digitos.length <= 11) {
+    return digitos.replace(/^(\d{3})(?=\d)/, '$1.')
+      .replace(/(\.\d{3})(?=\d)/, '$1.')
+      .replace(/(\.\d{3}\.\d{3})(?=\d)/, '$1-')
   }
+  return digitos.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{0,2})$/, '$1.$2.$3/$4-$5')
+    .replace(/^(\d{2})(\d{3})(\d{3})(\d{1,3})$/, '$1.$2.$3/$4')
+    .replace(/-$/, '')
+}
+
+function atualizarDocumento(event: Event) {
+  const input = event.target as HTMLInputElement
+  const posicao = input.selectionStart ?? input.value.length
+  const antesDoCursor = input.value.slice(0, posicao).replace(/\D/g, '').length
+  const digitos = input.value.replace(/\D/g, '').slice(0, 14)
+  const mascara = mascararDocumento(digitos)
+  if (digitos !== documento.value) lookupMsg.value = ''
+  form.cnpj = mascara
+  if (input.value !== mascara) {
+    input.value = mascara
+    let cursor = 0
+    let lidos = 0
+    while (cursor < mascara.length && lidos < antesDoCursor) {
+      if (/\d/.test(mascara[cursor])) lidos += 1
+      cursor += 1
+    }
+    input.setSelectionRange(cursor, cursor)
+  }
+}
+
+async function buscarCnpj() {
+  if (!podeBuscarCnpj.value) return
+  lookupMsg.value = ''
+  const cnpj = documento.value
   lookupLoading.value = true
-  const mesmoDocumento = () => form.cnpj.replace(/\D/g, '') === cnpj
+  const mesmoDocumento = () => documento.value === cnpj
   try {
     const dados = await consultarCnpj(cnpj)
     if (mesmoDocumento()) Object.assign(form, dados)
@@ -208,8 +237,8 @@ async function salvar() {
         <div>
           <label class="label" for="cnpj">CNPJ ou CPF</label>
           <div class="flex gap-2">
-            <input id="cnpj" v-model="form.cnpj" type="text" inputmode="numeric" class="input flex-1" placeholder="Somente números" />
-            <button type="button" class="btn btn-tonal shrink-0" :disabled="lookupLoading" @click="buscarCnpj">
+            <input id="cnpj" :value="form.cnpj" type="text" inputmode="numeric" class="input flex-1" placeholder="Somente números" @input="atualizarDocumento" />
+            <button type="button" class="btn btn-tonal shrink-0" :disabled="!podeBuscarCnpj" @click="buscarCnpj">
               <Icon name="search" :size="18" />
               {{ lookupLoading ? 'Buscando…' : 'Buscar' }}
             </button>
