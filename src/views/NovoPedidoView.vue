@@ -336,12 +336,40 @@ const produtos = ref<any[]>([])
 const prodSearched = ref(false)
 const prodPage = ref(0)
 const PROD_LIMIT = 30
+let prodRequest = 0
+
+function unidadesProduto(codigo: unknown): string[] {
+  return [...new Set(
+    store.fatores
+      .filter((f) => String(f[0]) === String(codigo))
+      .map((f) => f[1])
+      .filter(Boolean),
+  )]
+}
+
+function unidadeOptions(codigo: unknown) {
+  return [
+    { value: '', label: 'Padrão' },
+    ...unidadesProduto(codigo).map((unidade) => ({ value: unidade, label: unidade })),
+  ]
+}
+
+function limparProdutos() {
+  // Invalida também uma consulta que ainda esteja em andamento.
+  prodRequest += 1
+  produtos.value = []
+  prodSearched.value = false
+  prodPage.value = 0
+}
 
 async function buscarProdutos(reset = true) {
   if (!store.cabecalho.tabela) {
+    limparProdutos()
     notify('Selecione uma Tabela de Preço.')
     return
   }
+  const request = ++prodRequest
+  const tabela = store.cabecalho.tabela
   if (reset) {
     prodPage.value = 0
     produtos.value = []
@@ -355,7 +383,7 @@ async function buscarProdutos(reset = true) {
   const params: unknown[] = [
     store.cabecalho.empresa ?? '',
     store.cabecalho.local ?? '',
-    store.cabecalho.tabela,
+    tabela,
   ]
   const term = prodBusca.value.trim()
   if (term) {
@@ -365,6 +393,8 @@ async function buscarProdutos(reset = true) {
   sql += ' ORDER BY descvis LIMIT ? OFFSET ?'
   params.push(PROD_LIMIT, prodPage.value * PROD_LIMIT)
   const rows = await query<any>(sql, params)
+  // Uma troca de tabela pode acontecer antes de a consulta anterior terminar.
+  if (request !== prodRequest || String(tabela) !== String(store.cabecalho.tabela)) return
   rows.forEach((r) => {
     r.qtd = 1
     r.unidade = ''
@@ -377,6 +407,18 @@ async function maisProdutos() {
   prodPage.value += 1
   await buscarProdutos(false)
 }
+
+watch(
+  () => store.cabecalho.tabela,
+  (tabela, anterior) => {
+    if (String(tabela ?? '') === String(anterior ?? '')) return
+    limparProdutos()
+  },
+)
+
+watch(step, (atual, anterior) => {
+  if (atual === 1 && anterior !== 1 && store.cabecalho.tabela) void buscarProdutos()
+})
 
 async function quickAdd(p: any) {
   const n = await ensureNumpedido()
@@ -429,6 +471,7 @@ const modal = reactive({
 })
 
 const modalFator = computed(() => getfator(store.fatores, modal.codproduto, modal.unidade))
+const modalUnidades = computed(() => unidadesProduto(modal.codproduto))
 const modalPreview = computed(() =>
   calcPreco({
     venda: modal.venda,
@@ -453,7 +496,7 @@ function abrirModalProduto(p: any) {
   modal.tabela = Number(p.tabela) || 0
   modal.estoque = Number(p.estoque) || 0
   modal.quantidade = 1
-  modal.unidade = ''
+  modal.unidade = p.unidade ?? ''
   modal.descinc = 0
   modal.desconto = 0
   modal.descper = 'N'
@@ -471,7 +514,7 @@ async function abrirModalItem(row: any) {
   modal.minimo = Number(preco?.minimo) || 0
   modal.tabela = Number(row.tabela) || 0
   modal.quantidade = Number(row.qtd) || 1
-  modal.unidade = row.unidade ?? ''
+  modal.unidade = unidadesProduto(row.codproduto).includes(row.unidade) ? row.unidade : ''
   modal.descinc = Number(row.descinc) || 0
   modal.desconto = Number(row.descto) || 0
   modal.descper = row.descper ?? 'N'
@@ -1122,10 +1165,15 @@ watch(
                   <span class="sr-only">Quantidade</span>
                   <input v-model="p.qtd" type="number" inputmode="decimal" min="0" class="input min-h-10 py-1.5 text-center" placeholder="Qtd" />
                 </label>
-                <label class="w-20">
-                  <span class="sr-only">Unidade</span>
-                  <input v-model="p.unidade" type="text" class="input min-h-10 py-1.5 text-center" placeholder="Un." />
-                </label>
+                <SelectField
+                  v-if="unidadesProduto(p.codigo).length > 0"
+                  v-model="p.unidade"
+                  class="w-24 shrink-0"
+                  size="sm"
+                  :options="unidadeOptions(p.codigo)"
+                  :title="`Selecionar unidade de ${p.descvis || p.descricao}`"
+                  aria-label="Unidade"
+                />
                 <button class="btn btn-primary btn-sm min-h-10 flex-1" :disabled="!aberto" @click="quickAdd(p)">
                   <Icon name="plus" :size="16" /> Adicionar
                 </button>
@@ -1461,9 +1509,13 @@ watch(
             <span class="label">Quantidade</span>
             <input v-model.number="modal.quantidade" type="number" inputmode="decimal" min="0" class="input" />
           </label>
-          <label class="block">
+          <label v-if="modalUnidades.length > 0" class="block">
             <span class="label">Unidade</span>
-            <input v-model="modal.unidade" type="text" class="input" placeholder="Padrão" />
+            <SelectField
+              v-model="modal.unidade"
+              :options="unidadeOptions(modal.codproduto)"
+              title="Selecionar unidade"
+            />
           </label>
           <label class="block">
             <span class="label">Desc. incluso (%)</span>

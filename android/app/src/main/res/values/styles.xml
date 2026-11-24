@@ -13,13 +13,15 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- Aparece atrás das barras do sistema quando a página não chega até lá (ver MainActivity) -->
+        <item name="android:windowBackground">@color/creme</item>
     </style>
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
         <!-- Android 12+: a splash do sistema mostra só o ícone; fundo e marca iguais ao splash.png -->
-        <item name="windowSplashScreenBackground">#F0E8D8</item>
+        <item name="windowSplashScreenBackground">@color/creme</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
     </style>
 </resources>
