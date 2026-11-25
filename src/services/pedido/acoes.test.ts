@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   danfeEmitida, motivoBoleto, motivoCancelar, motivoDuplicar, motivoFinalizar,
-  motivoImprimir, motivoNfe, motivoReabrir, motivoTransformar,
+  motivoImprimir, motivoNfe, motivoNfePedido, motivoReabrir, motivoReenviar, motivoTransformar,
 } from './acoes'
 
 const rascunho = { status: 'A', itens: 0 }
@@ -52,4 +52,22 @@ describe('demais ações', () => {
     expect(motivoCancelar(finalizado)).toBeNull()
     for (const status of ['C', 'S', 'Z', 'V']) expect(motivoCancelar({ status, itens: 1 })).not.toBeNull()
   })
+})
+
+describe('NF-e direto da tela do pedido', () => {
+  it('aceita pedido aberto ou finalizado com itens', () => {
+    expect(motivoNfePedido(aberto)).toBeNull()
+    expect(motivoNfePedido(finalizado)).toBeNull()
+    expect(motivoNfePedido(sincronizado)).toBeNull()
+  })
+  it('bloqueia rascunho, aguardando confirmação e orçamento', () => {
+    expect(motivoNfePedido(rascunho)).not.toBeNull()
+    expect(motivoNfePedido({ status: 'V', itens: 1 })).toMatch(/Aguardando/)
+    expect(motivoNfePedido({ ...aberto, tipo: 'O' })).toMatch(/orçamento/)
+  })
+})
+
+it('reenviar só para pedido aguardando confirmação', () => {
+  expect(motivoReenviar({ status: 'V', itens: 1 })).toBeNull()
+  expect(motivoReenviar(sincronizado)).not.toBeNull()
 })

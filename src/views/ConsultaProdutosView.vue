@@ -7,21 +7,18 @@ import LoadingState from '../components/LoadingState.vue'
 import FilterButton from '../components/FilterButton.vue'
 import FilterChips, { type Chip } from '../components/FilterChips.vue'
 import Icon from '../components/Icon.vue'
+import PositivadoChip from '../components/PositivadoChip.vue'
 import SelectField from '../components/SelectField.vue'
 import SearchField from '../components/SearchField.vue'
 import Segmented from '../components/Segmented.vue'
 import Sheet from '../components/Sheet.vue'
 import { query } from '../db/connection'
-import { formatNumero, formatReal } from '../lib/format'
+import { formatNumero } from '../lib/format'
+import { periodoMes } from '../lib/periodo'
+import { buscarProdutos, type ProdutoRow } from '../services/produtos'
 import { useAuthStore } from '../stores/auth'
 import { useToast } from '../composables/useToast'
 import { useFilters } from '../composables/useFilters'
-
-const COLUMNS: Record<string, string> = {
-  descred: 'descred',
-  descricao: 'descricao',
-  codigo: 'codigo',
-}
 
 const COL_OPTIONS = [
   { value: 'descred', label: 'Descrição reduzida' },
@@ -36,14 +33,6 @@ const POSITIVADO_OPTIONS = [
 ]
 
 const LIMITS = [10, 20, 30, 40, 50, 100]
-
-interface ProdutoRow {
-  codigo: string
-  estoque: number | null
-  descvis: string
-  comprado: number
-  positivado: number
-}
 
 interface EmpresaRow {
   empresa: number
@@ -82,49 +71,19 @@ const chips = computed<Chip[]>(() => {
   return c
 })
 
-function monthBounds(): [string, string] {
-  const now = new Date()
-  const mm = String(now.getMonth() + 1).padStart(2, '0')
-  const dd = String(now.getDate()).padStart(2, '0')
-  return [`${now.getFullYear()}-${mm}-01`, `${now.getFullYear()}-${mm}-${dd}`]
-}
-
 async function buscar() {
   loading.value = true
   try {
-    const [start, end] = monthBounds()
-    const params: unknown[] = [start, end]
-    const col = COLUMNS[filtros.col]
-
-    const estoque = auth.usuario?.estoque === 'S' ? ' AND e.estoque > 0' : ''
-    const centralizado = filtros.empresa ? '' : " AND centralizado <> 'S'"
-
-    let filterEmpresa = ''
-    if (filtros.empresa) {
-      filterEmpresa = ' AND e.empresa = ?'
-      params.push(filtros.empresa)
-    }
-
-    let searchClause = ''
-    const term = search.value.trim()
-    if (term) {
-      searchClause = ` AND p.${col} LIKE ?`
-      params.push(`%${term}%`)
-    }
-
-    const select = `SELECT p.codigo, sum(e.estoque) AS estoque, p.${col} AS descvis, p.comprado, (SELECT COUNT(*) FROM HISTVENDA H INNER JOIN HISTITENS I ON H.LANCTO = I.LANCTO INNER JOIN PRODUTOS G ON G.CODIGO = I.PRODUTO WHERE H.DATA BETWEEN ? AND ? AND I.FATURAMENTO = 'S' AND I.PRODUTO = p.codigo) AS positivado FROM (SELECT * FROM produtos x GROUP BY x.codigo) p LEFT JOIN estoque e ON p.codigo = e.codigo${estoque}${centralizado} WHERE 1=1${filterEmpresa}${searchClause} GROUP BY p.codigo`
-
-    let sql: string
-    if (filtros.positivado === 'positivados') {
-      sql = `SELECT * FROM (${select}) q WHERE q.positivado > 0 ORDER BY q.descvis LIMIT ? OFFSET ?`
-    } else if (filtros.positivado === 'nao') {
-      sql = `SELECT * FROM (${select}) q WHERE q.positivado = 0 ORDER BY q.descvis LIMIT ? OFFSET ?`
-    } else {
-      sql = `${select} ORDER BY descvis LIMIT ? OFFSET ?`
-    }
-
-    params.push(filtros.limit, page.value * filtros.limit)
-    produtos.value = await query<ProdutoRow>(sql, params)
+    produtos.value = await buscarProdutos({
+      col: filtros.col,
+      termo: search.value,
+      positivado: filtros.positivado,
+      empresa: filtros.empresa,
+      soComEstoque: auth.usuario?.estoque === 'S',
+      periodo: periodoMes(),
+      limit: filtros.limit,
+      offset: page.value * filtros.limit,
+    })
     searched.value = true
   } catch (e) {
     notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
@@ -177,7 +136,7 @@ onMounted(() => {
       </div>
       <ul v-else class="list" :class="{ 'opacity-60': loading }">
         <li v-for="p in produtos" :key="p.codigo">
-          <RouterLink :to="`/produtos/${p.codigo}`" class="list-row flex items-center gap-3">
+          <RouterLink :to="{ name: 'produto', params: { codigo: p.codigo } }" class="list-row flex items-center gap-3">
             <div class="min-w-0 flex-1">
               <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ p.descvis }}</p>
               <p class="meta mt-1 tabular-nums">
@@ -188,13 +147,11 @@ onMounted(() => {
               </p>
             </div>
             <div class="flex flex-col items-end gap-1.5 shrink-0">
-              <p class="flex items-baseline gap-0.5 tabular-nums">
-                <span class="text-xs text-ink-500">R$</span>
-                <span class="figure text-[18px]">{{ formatReal(p.comprado) }}</span>
+              <p class="text-right tabular-nums">
+                <span class="block text-[11px] text-ink-500">Comprado</span>
+                <span class="figure text-[18px]">{{ formatNumero(p.comprado) }}</span>
               </p>
-              <span v-if="p.positivado > 0" class="inline-flex items-center gap-1 h-5 rounded-full bg-success-50 pl-1.5 pr-2 text-[11px] font-semibold text-success-800">
-                <Icon name="check" :size="12" :stroke="2.6" /> Positivado
-              </span>
+              <PositivadoChip :positivado="p.positivado > 0" />
             </div>
             <Icon name="chevron-right" class="text-ink-400" />
           </RouterLink>

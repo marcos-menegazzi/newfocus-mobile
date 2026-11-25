@@ -4,9 +4,9 @@ import {
   SQLiteConnection,
   type SQLiteDBConnection,
 } from '@capacitor-community/sqlite'
-import { DB_NAME, SCHEMA_SQL, SCHEMA_VERSION } from './schema'
+import { DB_NAME, SCHEMA_SQL, SCHEMA_VERSION, TABLES } from './schema'
 import { importLegacyDatabase } from './legacy'
-import { upgradeSchema } from './upgrade'
+import { parseTable, upgradeSchema } from './upgrade'
 
 let sqlite: SQLiteConnection | null = null
 let db: SQLiteDBConnection | null = null
@@ -100,4 +100,11 @@ export async function saveWebDb(): Promise<void> {
 export async function execute(sql: string): Promise<void> {
   const d = await getDb()
   await d.execute(sql)
+}
+
+/** Apaga todas as tabelas e recria o schema vazio. */
+export async function resetDb(): Promise<void> {
+  await execute(TABLES.map((sql) => `DROP TABLE IF EXISTS ${parseTable(sql).name}`).join(';\n'))
+  await execute(SCHEMA_SQL)
+  await saveWebDb()
 }

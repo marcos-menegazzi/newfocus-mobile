@@ -1,6 +1,6 @@
 import { query, run } from '../../db/connection'
-import { round, getfator } from './calc'
-import { calcPreco, type TabelaFlex } from './preco'
+import { getfator } from './calc'
+import { calcPreco, type PrecoResult, type TabelaFlex } from './preco'
 
 export interface ItemArgs {
   numpedido: string | number
@@ -9,6 +9,8 @@ export interface ItemArgs {
   venda: number
   maximo: number
   minimo: number
+  /** Valor unitário digitado, por unidade padrão. */
+  unitario?: number
   descinc: number
   desconto: number
   descper: string
@@ -31,22 +33,19 @@ export interface ListarItensResult {
   total: number
 }
 
-function validar(
-  args: ItemArgs,
-  unitario: number,
-  total: number,
-  fator: number,
-  maximo: number,
-  minimo: number,
-): void {
+export interface ItemGravado {
+  /** Vendido abaixo do mínimo por usuário liberado: a tela deve avisar. */
+  abaixoMinimo: boolean
+}
+
+function validar(args: ItemArgs, preco: PrecoResult, fator: number): void {
   if (args.quantidade <= 0) throw new Error('Informe uma quantidade maior que Zero.')
-  if (unitario <= 0) throw new Error('Informe um Valor Unitário maior que Zero.')
-  if (unitario > maximo) throw new Error('O Valor Unitário não pode ser maior que o Valor Máximo do Produto.')
-  if (unitario < minimo) {
-    if (!args.libmin) throw new Error('O Valor Unitário não pode ser menor que o Valor Mínimo do Produto.')
-    console.warn('Produto está sendo vendido abaixo do Valor Mínimo')
+  if (preco.vlunit <= 0) throw new Error('Informe um Valor Unitário maior que Zero.')
+  if (preco.acimaMaximo) throw new Error('O Valor Unitário não pode ser maior que o Valor Máximo do Produto.')
+  if (preco.total <= 0) throw new Error('O Valor Total deve ser maior que Zero.')
+  if (preco.abaixoMinimo && !args.libmin) {
+    throw new Error('O Valor Unitário não pode ser menor que o Valor Mínimo do Produto.')
   }
-  if (total <= 0) throw new Error('O Valor Total deve ser maior que Zero.')
   if (args.cEstoque === 'S' && args.estoque < args.quantidade * fator) {
     throw new Error('Quantidade de Estoque Indisponível')
   }
@@ -79,59 +78,59 @@ export async function listarItens(numpedido: string | number): Promise<ListarIte
   return { rows, pesopedido, flex, total }
 }
 
-export async function incluirItem(args: ItemArgs): Promise<void> {
-  const fator = getfator(args.fatores, args.codproduto, args.unidade)
-  const preco = calcPreco({
-    venda: args.venda, maximo: args.maximo, minimo: args.minimo,
-    descinc: 0, quantidade: args.quantidade, fator,
-    desconto: 0, descper: 'N', tabela: args.tabela, tabelas: args.tabelas,
-  })
-  const unitario = preco.vlunit
-  const vlunbase = preco.vlunbase
-  const total = preco.total
-  const flex = preco.flex
-  validar(args, unitario, total, fator, round(args.maximo * fator, 2), round(args.minimo * fator, 2))
-
-  if (await itemExists(args.numpedido, args.codproduto, args.tabela)) {
-    await run(
-      'UPDATE mped SET qtd=?, vlunit=?, vltotal=?, descto=0, descinc=0, vlunbase=?, vlbruto=?, operacao=?, condicao=?, descper=?, comissao=?, fator=?, unidade=?, flex=? WHERE numpedido=? AND codproduto=? AND tabela=?',
-      [args.quantidade, unitario, total, vlunbase, unitario, args.operacao, args.condicao, 'N', args.comissao, fator, args.unidade, flex, args.numpedido, args.codproduto, args.tabela],
-    )
-  } else {
-    await run(
-      'INSERT INTO mped(numpedido, codproduto, qtd, vlunit, descto, vltotal, descinc, vlunbase, vlbruto, operacao, condicao, descper, comissao, tabela, fator, unidade, flex) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      [args.numpedido, args.codproduto, args.quantidade, unitario, 0, total, 0, vlunbase, unitario, args.operacao, args.condicao, 'N', args.comissao, args.tabela, fator, args.unidade, flex],
-    )
-  }
+/** Inclusão rápida: preço de tabela, sem descontos. */
+export function incluirItem(args: ItemArgs): Promise<ItemGravado> {
+  return gravarItem({ ...args, unitario: undefined, descinc: 0, desconto: 0, descper: 'N' })
 }
 
-export async function gravarItem(args: ItemArgs): Promise<void> {
+export async function gravarItem(args: ItemArgs): Promise<ItemGravado> {
   const fator = getfator(args.fatores, args.codproduto, args.unidade)
   const preco = calcPreco({
-    venda: args.venda, maximo: args.maximo, minimo: args.minimo,
+    venda: args.venda, maximo: args.maximo, minimo: args.minimo, unitario: args.unitario,
     descinc: args.descinc, quantidade: args.quantidade, fator,
     desconto: args.desconto, descper: args.descper as 'S' | 'N',
     tabela: args.tabela, tabelas: args.tabelas,
   })
-  const unitario = preco.vlunit
-  const vlunbase = preco.vlunbase
-  const total = preco.total
-  const flex = preco.flex
-  validar(args, unitario, total, fator, round(args.maximo * fator, 2), round(args.minimo * fator, 2))
+  validar(args, preco, fator)
+  const { vlunit, vlunbase, total, flex } = preco
 
   if (await itemExists(args.numpedido, args.codproduto, args.tabela)) {
     await run(
       'UPDATE mped SET qtd=?, vlunit=?, descto=?, vltotal=?, descinc=?, vlunbase=?, vlbruto=?, operacao=?, condicao=?, descper=?, comissao=?, fator=?, unidade=?, flex=? WHERE codproduto=? AND numpedido=? AND tabela=?',
-      [args.quantidade, unitario, args.desconto, total, args.descinc, vlunbase, unitario, args.operacao, args.condicao, args.descper, args.comissao, fator, args.unidade, flex, args.codproduto, args.numpedido, args.tabela],
+      [args.quantidade, vlunit, args.desconto, total, args.descinc, vlunbase, vlunit, args.operacao, args.condicao, args.descper, args.comissao, fator, args.unidade, flex, args.codproduto, args.numpedido, args.tabela],
     )
   } else {
     await run(
       'INSERT INTO mped(numpedido, codproduto, qtd, vlunit, descto, vltotal, descinc, vlunbase, vlbruto, operacao, condicao, descper, comissao, tabela, fator, unidade, flex) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      [args.numpedido, args.codproduto, args.quantidade, unitario, args.desconto, total, args.descinc, vlunbase, unitario, args.operacao, args.condicao, args.descper, args.comissao, args.tabela, fator, args.unidade, flex],
+      [args.numpedido, args.codproduto, args.quantidade, vlunit, args.desconto, total, args.descinc, vlunbase, vlunit, args.operacao, args.condicao, args.descper, args.comissao, args.tabela, fator, args.unidade, flex],
     )
   }
+  return { abaixoMinimo: preco.abaixoMinimo }
 }
 
 export async function excluirItem(numpedido: string | number, codproduto: string, tabela: string | number): Promise<void> {
   await run('DELETE FROM mped WHERE numpedido=? AND codproduto=? AND tabela=?', [numpedido, codproduto, tabela])
+}
+
+export interface HistoricoProduto {
+  pedido: number
+  data: string
+  quant: number
+  vlunit: number
+  condicao: string
+  tabela: string
+}
+
+/** Vendas anteriores do produto, de todos os clientes ou só do informado. */
+export async function historicoProduto(codproduto: string, cliente?: number | string): Promise<HistoricoProduto[]> {
+  const params: unknown[] = [codproduto]
+  if (cliente) params.push(cliente)
+  return query<HistoricoProduto>(
+    `SELECT p.pedido, p.data, i.quant, SUM(i.vlunit) AS vlunit,
+            CASE WHEN p.condicao = 'S/C' THEN '' ELSE p.condicao END AS condicao, i.tabela
+     FROM histvenda p, histitens i
+     WHERE p.lancto = i.lancto AND p.pedido = i.pedido AND i.produto = ?${cliente ? ' AND p.clifor = ?' : ''}
+     GROUP BY p.pedido ORDER BY p.data DESC, p.pedido DESC`,
+    params,
+  )
 }

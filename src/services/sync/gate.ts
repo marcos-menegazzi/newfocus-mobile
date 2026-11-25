@@ -6,17 +6,31 @@ import { useAuthStore } from '../../stores/auth'
 
 const TZ_TOKEN = 'cedb6b810af327287a13d4e78404b24ed7c0848e5f45abec1d8a33d8b3625caf'
 
+const SERVIDOR_OCUPADO = 'Servidor Ocupado, aguarde 1 minuto e tente novamente.'
+
+/** Na virada da hora o servidor não atende. Se a API de horário falhar, segue adiante. */
+export async function servidorOcupado(): Promise<boolean> {
+  try {
+    const tz = await CapacitorHttp.get({
+      url: 'https://pix.voltplus.com.br/api/timezone',
+      headers: { Authorization: `Bearer ${TZ_TOKEN}` },
+      connectTimeout: 10000,
+      readTimeout: 10000,
+    })
+    const minute = String((tz.data as any)?.time ?? '').substring(3, 5)
+    return minute === '59' || minute === '00'
+  } catch {
+    return false
+  }
+}
+
+export async function exigirServidorLivre(): Promise<void> {
+  if (await servidorOcupado()) throw new Error(SERVIDOR_OCUPADO)
+}
+
 export async function validaSync(): Promise<void> {
   const u = useAuthStore().usuario!
-  const tz = await CapacitorHttp.get({
-    url: 'https://pix.voltplus.com.br/api/timezone',
-    headers: { Authorization: `Bearer ${TZ_TOKEN}` },
-  })
-  const time = (tz.data as any)?.time ?? ''
-  const minute = time.substring(3, 5)
-  if (minute === '59' || minute === '00') {
-    throw new Error('Servidor Ocupado, aguarde 1 minuto e tente novamente.')
-  }
+  await exigirServidorLivre()
 
   const doc = await call(`P_VDCWEB:EXEC("${u.versao}", ${u.codlic})`)
   const status = childText(doc.getElementsByTagName('retorno')[0], 'status')

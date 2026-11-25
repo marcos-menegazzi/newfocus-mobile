@@ -1,5 +1,5 @@
 import { call } from './context'
-import { childText, rowChildren, tag } from './helpers'
+import { childText, linhas, tag } from './helpers'
 import { clearTables } from './pull'
 import { run, query } from '../../db/connection'
 import { useAuthStore } from '../../stores/auth'
@@ -13,9 +13,12 @@ export async function pullAgenda(): Promise<void> {
       tag('periodo', a.dias) + tag('data_inc', a.dia) + '[/agenda]'
     ).join('') + '[/agendas]'
 
-  await clearTables(['agenda'])
   const doc = await call(`P_AGWEB:EXEC("${u.codlic}","${u.usuario}", "${xmlAgenda}")`)
-  for (const r of rowChildren(doc, 'retorno')) {
+  const rows = linhas(doc, 'retorno', 'cliente')
+  // Só limpa depois da resposta: a agenda local pode ter itens ainda não enviados.
+  if (rows.length === 0) return
+  await clearTables(['agenda'])
+  for (const r of rows) {
     await run("INSERT INTO agenda(clifor, data_base, dia, hora, dias, snvis) VALUES (?,?,?,?,?,'S')", [
       childText(r, 'cliente'), childText(r, 'dtuvisita'), childText(r, 'diavisita'),
       childText(r, 'hrvisita'), childText(r, 'dias'),

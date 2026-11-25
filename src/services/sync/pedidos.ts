@@ -4,13 +4,16 @@ import { run, query } from '../../db/connection'
 import { useAuthStore } from '../../stores/auth'
 import { useToast } from '../../composables/useToast'
 
-export const PED_SQL = `SELECT p.numpedido, p.data, p.total, p.empresa, c.codigo AS cliente,
+const PED_SELECT = `SELECT p.numpedido, p.data, p.total, p.empresa, c.codigo AS cliente,
   p.operacao AS opeped, p.condpag AS condped, p.obsped, p.tabela AS tabped, p.carga, p.tipo,
   p.comissao AS comisped, p.complemento, p.idunico, p.numero AS numnota, p.snunidade,
   p.snquilo, p.valor_quilo, p.valor_unidade, p.valor_frete, p.retsuc, p.resolvido,
   p.cliente_nome, p.cliente_cpf, p.vendedor
   FROM ped p INNER JOIN clifor c ON p.clifor = c.codigo INNER JOIN condicao e ON p.condpag = e.codigo
-  WHERE e.inativo = 'N' AND p.status = 'F' ORDER BY p.numpedido LIMIT 3`
+  WHERE e.inativo = 'N' AND p.status = 'F'`
+
+export const PED_SQL = `${PED_SELECT} ORDER BY p.numpedido LIMIT 3`
+const PED_UNICO_SQL = `${PED_SELECT} AND p.numpedido = ?`
 
 // Mesmo formato de colchetes e mesmos tratamentos do sincronizar.html legado.
 export function pedidoPayload(p: any, parcelas: any[], itens: any[]): string {
@@ -41,10 +44,11 @@ export function pedidoPayload(p: any, parcelas: any[], itens: any[]): string {
     '[/pedido]'
 }
 
-export async function pushPedidos(): Promise<void> {
+/** Envia os pedidos finalizados, ou só o informado. */
+export async function pushPedidos(numpedido?: string): Promise<void> {
   const u = useAuthStore().usuario!
   while (true) {
-    const peds = await query<any>(PED_SQL)
+    const peds = numpedido ? await query<any>(PED_UNICO_SQL, [numpedido]) : await query<any>(PED_SQL)
     if (peds.length === 0) break
     let xml = '[pedidos]'
     for (const p of peds) {
@@ -74,7 +78,7 @@ export async function pushPedidos(): Promise<void> {
 
 export async function pullPedidoStatus(): Promise<void> {
   const u = useAuthStore().usuario!
-  const rows = await query<any>("SELECT idunico FROM ped WHERE status = 'V'")
+  const rows = await query<any>("SELECT idunico FROM ped WHERE status IN ('V', 'S')")
   if (rows.length === 0) return
   const xml = '[pedidos]' + rows.map((r) => `[pedido]${tag('numpedido', r.idunico)}[/pedido]`).join('') + '[/pedidos]'
   const doc = await call(`P_VPEDW:EXEC("${xml}","${u.usuario}","${u.codlic}")`)

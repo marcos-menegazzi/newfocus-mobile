@@ -28,7 +28,7 @@ export async function incluirParcela(
   if (dup.length > 0) throw new Error('Cobrança já incluída para o Pedido')
 
   const totalFin = await totalFinanceiro(pedido)
-  if (round(valor + totalFin, 2) > totalPedido) {
+  if (round(valor + totalFin, 2) > round(totalPedido, 2)) {
     throw new Error('Valor Informado não pode ser maior que o Valor do Pedido.')
   }
 

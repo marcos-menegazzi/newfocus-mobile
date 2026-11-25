@@ -90,6 +90,11 @@ async function submit() {
       <button type="submit" :disabled="loading" class="btn btn-primary w-full">
         {{ loading ? 'Entrando…' : 'Entrar' }}
       </button>
+
+      <p class="text-center text-sm text-ink-500">
+        Esqueceu a senha?
+        <a class="link" href="http://www.newfocus.com.br/index.php/fale-conosco-049-3521-3880" target="_blank" rel="noopener">Fale conosco</a>
+      </p>
     </form>
   </div>
 </template>

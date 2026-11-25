@@ -5,7 +5,7 @@ import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
 import LoadingState from '../components/LoadingState.vue'
 import { query } from '../db/connection'
-import { formatNumero, formatReal } from '../lib/format'
+import { formatNumero, formatReal, textoObservacao } from '../lib/format'
 import { pasta } from '../services/files'
 import { useAuthStore } from '../stores/auth'
 import { useToast } from '../composables/useToast'
@@ -191,7 +191,7 @@ onMounted(async () => {
 
         <section v-if="produto.observacao" class="panel p-4">
           <h2 class="section-title mb-2">Observação</h2>
-          <p class="text-[15px] text-ink-700 whitespace-pre-wrap">{{ produto.observacao }}</p>
+          <p class="text-[15px] text-ink-700 whitespace-pre-wrap">{{ textoObservacao(produto.observacao) }}</p>
         </section>
       </template>
     </div>

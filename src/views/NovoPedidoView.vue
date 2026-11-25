@@ -11,22 +11,29 @@ import SearchField from '../components/SearchField.vue'
 import Segmented from '../components/Segmented.vue'
 import Sheet from '../components/Sheet.vue'
 import StatusChip from '../components/StatusChip.vue'
+import MoneyInput from '../components/MoneyInput.vue'
 import { query, run, saveWebDb } from '../db/connection'
-import { formatReal, mudadata } from '../lib/format'
-import { getfator, isCondAvista } from '../services/pedido/calc'
+import { formatNumero, formatReal, mudadata, textoObservacao } from '../lib/format'
+import { getfator, isCondAvista, round } from '../services/pedido/calc'
 import { calcPreco } from '../services/pedido/preco'
-import { listarItens, incluirItem, gravarItem, excluirItem } from '../services/pedido/itens'
+import { listarItens, incluirItem, gravarItem, excluirItem, historicoProduto, type HistoricoProduto, type ItemGravado } from '../services/pedido/itens'
 import { aplicarDesconto, aplicarAcrescimo } from '../services/pedido/desconto'
 import { incluirParcela, excluirParcela, listarParcelas, validarFinanceiro } from '../services/pedido/financeiro'
 import { finalizar } from '../services/pedido/finalizar'
 import { imprimirPedido } from '../services/pedido/imprimir'
-import { termo, saldoSucata, saldosFinanceiro, type SaldoSucata, type SaldoFinanceiro } from '../services/pedido/termo'
+import {
+  creditoDisponivel, escolherCliente, msgVencidos, opcoesDoCliente, situacaoTitulos, sucataEmAberto,
+  tituloVencido, ultrapassaCredito, type OpcoesCliente,
+} from '../services/pedido/cliente'
+import { exigirProdutosSincronizados } from '../services/pedido/pedido'
+import { buscarProdutosPedido } from '../services/produtos'
+import { imprimirErp, termo, saldoSucata, saldosFinanceiro, type SaldoSucata, type SaldoFinanceiro } from '../services/pedido/termo'
 import {
   danfeEmitida, motivoBoleto, motivoCancelar, motivoDuplicar, motivoFinalizar,
-  motivoImprimir, motivoNfe, motivoReabrir, motivoTransformar, type PedidoSituacao,
+  motivoImprimir, motivoNfePedido, motivoReabrir, motivoReenviar, motivoTransformar, type PedidoSituacao,
 } from '../services/pedido/acoes'
-import { emitirNfe, emitirBoleto } from '../services/sync/fiscal'
-import { openPdf, pdfUrl } from '../services/files'
+import { abrirDanfe, emitirNfe, emitirBoleto } from '../services/sync/fiscal'
+import { exigirServidorLivre } from '../services/sync/gate'
 import { pushClientes } from '../services/sync/clientes'
 import { pushPedidos } from '../services/sync/pedidos'
 import { useAuthStore } from '../stores/auth'
@@ -39,7 +46,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const store = usePedidoStore()
 const { notify } = useToast()
-const { confirmar } = useConfirm()
+const { confirmar, avisar } = useConfirm()
 
 const STEPS = [
   { label: 'Cliente', next: 'Continuar para produtos' },
@@ -59,18 +66,17 @@ const empresas = ref<any[]>([])
 const vendedores = ref<any[]>([])
 const condicoes = ref<any[]>([])
 const tabelas = ref<any[]>([])
+const grupos = ref<any[]>([])
 const cargas = ref<any[]>([])
 const comissoes = ref<any[]>([])
 const operacoes = ref<any[]>([])
-const cobrancas = ref<any[]>([])
 
 const itens = ref<any[]>([])
 const total = ref(0)
 const quantidade = ref(0)
 const flexPedido = ref(0)
+const pesoPedido = ref(0)
 const saldoFlex = computed(() => Number(auth.usuario?.saldoflex ?? 0))
-
-const NFE: string = 'N'
 
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
@@ -86,6 +92,11 @@ const cliente = reactive({
   credito: 0,
   saldo: 0,
 })
+const credito = computed(() => creditoDisponivel(cliente))
+
+// O que o cliente escolhido pode usar (sem cliente, tudo).
+const opcoes = ref<OpcoesCliente>({ condicoes: [], cobrancas: [], tabelas: [] })
+const tituloAtrasado = ref<{ vencimento: string } | null>(null)
 
 const CLIENT_FIELDS: Record<string, string> = {
   fantasia: 'cf.fantasia',
@@ -112,10 +123,17 @@ const operacaoLabel = computed(() => store.cabecalho.operacao || 'Selecionar ope
 const isEdit = computed(() => !!store.cabecalho.numpedido)
 const titulo = computed(() => (store.cabecalho.numpedido ? `Pedido ${store.cabecalho.numpedido}` : 'Novo pedido'))
 const aberto = computed(() => !store.cabecalho.numpedido || store.pedstatus === 'A')
+// Com itens no pedido, trocar empresa, cliente ou condição mudaria o que já foi vendido.
+const travado = computed(() => !aberto.value || itens.value.length > 0)
+// Consumidor (CPF): nome e documento podem ser informados no pedido.
+const consumidor = computed(() => String(cliente.cnpj ?? '').replace(/\D/g, '').length === 11)
 
 const finObrigatorio = computed(() => auth.usuario?.finped === 'S')
 const headerOk = computed(() => validarCabecalho() === null)
-const pagamentoOk = computed(() => remaining.value <= 0.005)
+// Sem parcelas o financeiro só é cobrado de quem tem finped; com alguma, a soma precisa bater com o total.
+const exigeDistribuir = computed(() => finObrigatorio.value || parcelas.value.length > 0)
+const pagamentoOk = computed(() => Math.abs(remaining.value) <= 0.005)
+const faltaLabel = computed(() => (remaining.value < 0 ? 'Parcelas excedem o total em' : 'Falta distribuir'))
 
 const nome = (list: any[], key: string, val: unknown, field: string) =>
   list.find((x) => String(x[key]) === String(val))?.[field] ?? ''
@@ -160,7 +178,7 @@ async function goTo(i: number) {
   try {
     // Ao sair do cabeçalho o pedido já é gravado (rascunho, sem itens): se o app
     // fechar, o vendedor retoma pela lista de pedidos em vez de recomeçar.
-    if (i >= 1 && !store.cabecalho.numpedido) await store.salvar()
+    if (i >= 1 && !store.cabecalho.numpedido) await criarPedido()
     else await persistTotal()
     await salvarEtapa(i)
     step.value = i
@@ -223,12 +241,14 @@ async function refreshItens() {
     total.value = 0
     quantidade.value = 0
     flexPedido.value = 0
+    pesoPedido.value = 0
     return
   }
   const r = await listarItens(n)
   itens.value = r.rows
   total.value = r.total
   flexPedido.value = r.flex
+  pesoPedido.value = r.pesopedido
   quantidade.value = r.rows.reduce((acc, x) => acc + Number(x.qtd || 0), 0)
 }
 
@@ -250,7 +270,7 @@ async function abrirCliente() {
   await buscarClientes()
 }
 
-function aplicarCliente(row: any) {
+function mostrarCliente(row: any) {
   cliente.id = row.clifor
   cliente.codigo = row.codigo
   cliente.fantasia = row.fantasia
@@ -259,17 +279,94 @@ function aplicarCliente(row: any) {
   cliente.limcred = row.limcred
   cliente.credito = row.credito
   cliente.saldo = row.saldo
-  store.cabecalho.clifor = row.codigo
-  store.cabecalho.cliente_nome = row.razao
-  store.cabecalho.cliente_cpf = row.cnpj
-  showCliente.value = false
 }
 
+function limparCliente() {
+  Object.assign(cliente, { id: 0, codigo: 0, fantasia: '', razao: '', cnpj: '', limcred: 0, credito: 0, saldo: 0 })
+  Object.assign(store.cabecalho, { clifor: '', cliente_nome: '', cliente_cpf: '' })
+  tituloAtrasado.value = null
+}
+
+async function aplicarCliente(row: any) {
+  const c = store.cabecalho
+  showCliente.value = false
+  const e = await escolherCliente(row, {
+    empresa: c.empresa, tipo: c.tipo, condpag: c.condpag, tabela: c.tabela, usuario: auth.usuario ?? {},
+  })
+  if (e.bloqueio) {
+    await avisar({ title: 'Cliente bloqueado', message: e.bloqueio })
+    return
+  }
+  mostrarCliente(row)
+  opcoes.value = e.opcoes
+  tituloAtrasado.value = e.titulo
+  Object.assign(c, e.cabecalho)
+  if (e.avisos.length) await avisar({ title: row.fantasia || row.razao, message: e.avisos.join('\n\n') })
+}
+
+// Pedido já gravado: só exibe, sem reaplicar as regras sobre o que foi salvo.
 async function carregarCliente() {
-  const c = store.cabecalho.clifor
-  if (!c) return
-  const rows = await query<any>('SELECT * FROM clifor WHERE codigo = ?', [c])
-  if (rows[0]) aplicarCliente(rows[0])
+  const c = store.cabecalho
+  opcoes.value = await opcoesDoCliente(c.clifor)
+  if (!c.clifor) return
+  const rows = await query<any>('SELECT * FROM clifor WHERE codigo = ?', [c.clifor])
+  if (!rows[0]) return
+  mostrarCliente(rows[0])
+  tituloAtrasado.value = await tituloVencido(c.clifor, c.empresa, auth.usuario ?? {})
+}
+
+async function trocarEmpresa() {
+  const c = store.cabecalho
+  Object.assign(c, { operacao: '', cobranca: '', local: '' })
+  limparProdutos()
+  if (!c.clifor) return
+  if (auth.usuario?.bloqemp === 'S') return limparCliente()
+  if (await sucataEmAberto(c.clifor, c.empresa)) {
+    limparCliente()
+    await avisar({ title: 'Cliente bloqueado', message: 'Cliente com retorno de sucata em aberto, pedido bloqueado.' })
+  }
+}
+
+const situacaoDoCliente = (tipo: string) => situacaoTitulos(tituloAtrasado.value, auth.usuario ?? {}, tipo)
+
+const avisoAvista = () => avisar({
+  title: 'Condição não permitida',
+  message: `${msgVencidos(auth.usuario?.dias)} Só é permitida condição à vista.`,
+})
+
+async function trocarCondicao() {
+  const c = store.cabecalho
+  if (situacaoDoCliente(c.tipo) !== 'somente-avista' || isCondAvista(condicoes.value, c.condpag)) return
+  c.condpag = ''
+  await avisoAvista()
+}
+
+// Entrada ignora títulos vencidos; ao sair dela a regra volta a valer.
+async function trocarTipo(tipo: string) {
+  const c = store.cabecalho
+  const anterior = c.tipo
+  c.tipo = tipo
+  if (!aberto.value) return
+  const s = situacaoDoCliente(tipo)
+  if (s === 'bloqueado') {
+    if (travado.value) c.tipo = anterior
+    else limparCliente()
+    await avisar({ title: 'Cliente bloqueado', message: msgVencidos(auth.usuario?.dias) })
+  } else if (s === 'somente-avista' && c.condpag && !isCondAvista(condicoes.value, c.condpag)) {
+    if (travado.value) c.tipo = anterior
+    else c.condpag = ''
+    await avisoAvista()
+  }
+}
+
+function semCredito(): boolean {
+  const u = auth.usuario
+  const c = store.cabecalho
+  const excede = ultrapassaCredito(cliente, total.value, {
+    limcred: u?.limcred, libera: u?.libera, tipo: c.tipo, avista: isCondAvista(condicoes.value, c.condpag),
+  })
+  if (excede) notify('Pedido Ultrapassa o Limite de Crédito Disponível', 'error')
+  return excede
 }
 
 async function abrirOperacao() {
@@ -331,14 +428,34 @@ async function ensureNumpedido(): Promise<string | null> {
     notify(err)
     return null
   }
-  await store.salvar()
+  await criarPedido()
   return store.cabecalho.numpedido
+}
+
+async function criarOuAvisar(): Promise<string | null> {
+  try {
+    return await ensureNumpedido()
+  } catch (e) {
+    notify(msg(e), 'error')
+    return null
+  }
+}
+
+async function criarPedido() {
+  await exigirProdutosSincronizados()
+  await store.salvar()
 }
 
 async function persistTotal() {
   if (store.cabecalho.numpedido && store.pedstatus === 'A') {
     await store.salvar()
   }
+}
+
+async function atualizarPedido() {
+  await refreshItens()
+  await persistTotal()
+  await refreshParcelas()
 }
 
 function assertAberto(): boolean {
@@ -350,13 +467,9 @@ function assertAberto(): boolean {
 }
 
 // --- Incluir (produtos) ---
-const PROD_FIELDS: Record<string, string> = {
-  descred: 'descred',
-  descricao: 'descricao',
-  codigo: 'codigo',
-}
 const prodCampo = ref('descricao')
 const prodBusca = ref('')
+const prodGrupo = ref('')
 const produtos = ref<any[]>([])
 const prodSearched = ref(false)
 const prodPage = ref(0)
@@ -387,6 +500,18 @@ function limparProdutos() {
   prodPage.value = 0
 }
 
+function itemDoProduto(p: any) {
+  return itens.value.find((i) => String(i.codproduto) === String(p.codigo) && String(i.tabela) === String(p.tabela))
+}
+
+function verObservacao(p: any) {
+  return avisar({ title: p.descvis || p.descricao, message: textoObservacao(p.observacao) })
+}
+
+async function avisarMinimo(r: ItemGravado) {
+  if (r.abaixoMinimo) await avisar({ title: 'Atenção', message: 'Produto está sendo vendido abaixo do Valor Mínimo.' })
+}
+
 async function buscarProdutos(reset = true) {
   if (!store.cabecalho.tabela) {
     limparProdutos()
@@ -399,30 +524,22 @@ async function buscarProdutos(reset = true) {
     prodPage.value = 0
     produtos.value = []
   }
-  const field = PROD_FIELDS[prodCampo.value]
-  let sql = `SELECT x.*, m.venda, m.maximo, m.minimo, t.codigo AS tabela
-    FROM (SELECT p.*, e.estoque, p.${field} AS descvis
-          FROM produtos p LEFT JOIN estoque e ON p.codigo = e.codigo AND e.empresa = ? AND e.local = ?) x,
-         tpreco t, mvtpreco m
-    WHERE t.codigo = m.tabela_codigo AND m.produto = x.codigo AND m.tabela_codigo = ?`
-  const params: unknown[] = [
-    store.cabecalho.empresa ?? '',
-    store.cabecalho.local ?? '',
+  const rows = await buscarProdutosPedido({
+    col: prodCampo.value,
+    termo: prodBusca.value,
+    grupo: prodGrupo.value,
+    empresa: store.cabecalho.empresa,
+    local: store.cabecalho.local,
     tabela,
-  ]
-  const term = prodBusca.value.trim()
-  if (term) {
-    sql += ` AND x.${field} LIKE ?`
-    params.push(`%${term}%`)
-  }
-  sql += ' ORDER BY descvis LIMIT ? OFFSET ?'
-  params.push(PROD_LIMIT, prodPage.value * PROD_LIMIT)
-  const rows = await query<any>(sql, params)
+    limit: PROD_LIMIT,
+    offset: prodPage.value * PROD_LIMIT,
+  })
   // Uma troca de tabela pode acontecer antes de a consulta anterior terminar.
   if (request !== prodRequest || String(tabela) !== String(store.cabecalho.tabela)) return
   rows.forEach((r) => {
-    r.qtd = 1
-    r.unidade = ''
+    const item = itemDoProduto(r)
+    r.qtd = item?.qtd ?? 1
+    r.unidade = item?.unidade ?? ''
   })
   produtos.value = reset ? rows : produtos.value.concat(rows)
   prodSearched.value = true
@@ -442,14 +559,16 @@ watch(
 )
 
 watch(step, (atual, anterior) => {
+  if (atual >= 2) void refreshParcelas()
   if (atual === 1 && anterior !== 1 && store.cabecalho.tabela) void buscarProdutos()
 })
 
 async function quickAdd(p: any) {
-  const n = await ensureNumpedido()
+  if (semCredito()) return
+  const n = await criarOuAvisar()
   if (!n) return
   try {
-    await incluirItem({
+    const gravado = await incluirItem({
       numpedido: n,
       codproduto: p.codigo,
       quantidade: Number(p.qtd) || 0,
@@ -470,9 +589,9 @@ async function quickAdd(p: any) {
       cEstoque: store.cabecalho.estoque,
       libmin: auth.usuario?.libmin === 'S',
     })
-    await refreshItens()
-    await persistTotal()
+    await atualizarPedido()
     notify(`${p.descvis || p.descricao} adicionado`, 'success')
+    await avisarMinimo(gravado)
   } catch (e) {
     notify(msg(e), 'error')
   }
@@ -493,6 +612,7 @@ const modal = reactive({
   descinc: 0,
   desconto: 0,
   descper: 'N',
+  unitario: null as number | null,
 })
 
 const modalFator = computed(() => getfator(store.fatores, modal.codproduto, modal.unidade))
@@ -502,7 +622,8 @@ const modalPreview = computed(() =>
     venda: modal.venda,
     maximo: modal.maximo,
     minimo: modal.minimo,
-    descinc: modal.descinc,
+    unitario: Number(modal.unitario) || 0,
+    descinc: Number(modal.descinc) || 0,
     quantidade: Number(modal.quantidade) || 0,
     fator: modalFator.value,
     desconto: modal.desconto,
@@ -520,7 +641,8 @@ function abrirModalProduto(p: any) {
   modal.minimo = Number(p.minimo) || 0
   modal.tabela = Number(p.tabela) || 0
   modal.estoque = Number(p.estoque) || 0
-  modal.quantidade = 1
+  modal.quantidade = Number(p.qtd) || 1
+  modal.unitario = modal.venda
   modal.unidade = p.unidade ?? ''
   modal.descinc = 0
   modal.desconto = 0
@@ -540,6 +662,7 @@ async function abrirModalItem(row: any) {
   modal.tabela = Number(row.tabela) || 0
   modal.quantidade = Number(row.qtd) || 1
   modal.unidade = unidadesProduto(row.codproduto).includes(row.unidade) ? row.unidade : ''
+  modal.unitario = Number(row.vlunit) / (Number(row.fator) || 1)
   modal.descinc = Number(row.descinc) || 0
   modal.desconto = Number(row.descto) || 0
   modal.descper = row.descper ?? 'N'
@@ -554,17 +677,45 @@ async function abrirModalItem(row: any) {
   modal.open = true
 }
 
+// O desconto incluso define o unitário; sem ele, volta a valer o preço de tabela.
+watch(
+  () => Number(modal.descinc) || 0,
+  (atual, anterior) => {
+    if (!modal.open) return
+    if (atual > 0) modal.unitario = round(modal.venda - round(modal.venda * (atual / 100), 2), 2)
+    else if (anterior > 0) modal.unitario = modal.venda
+  },
+)
+
+const historico = reactive({ open: false, doCliente: false, rows: [] as HistoricoProduto[] })
+
+async function abrirHistorico(doCliente: boolean) {
+  if (doCliente && !store.cabecalho.clifor) {
+    notify('Selecione um Cliente.')
+    return
+  }
+  try {
+    historico.rows = await historicoProduto(modal.codproduto, doCliente ? store.cabecalho.clifor : undefined)
+    historico.doCliente = doCliente
+    historico.open = true
+  } catch (e) {
+    notify(msg(e), 'error')
+  }
+}
+
 async function gravarModal() {
-  const n = await ensureNumpedido()
+  if (semCredito()) return
+  const n = await criarOuAvisar()
   if (!n) return
   try {
-    await gravarItem({
+    const gravado = await gravarItem({
       numpedido: n,
       codproduto: modal.codproduto,
       quantidade: Number(modal.quantidade) || 0,
       venda: modal.venda,
       maximo: modal.maximo,
       minimo: modal.minimo,
+      unitario: Number(modal.unitario) || 0,
       descinc: Number(modal.descinc) || 0,
       desconto: Number(modal.desconto) || 0,
       descper: modal.descper,
@@ -580,9 +731,9 @@ async function gravarModal() {
       libmin: auth.usuario?.libmin === 'S',
     })
     modal.open = false
-    await refreshItens()
-    await persistTotal()
+    await atualizarPedido()
     notify('Item salvo', 'success')
+    await avisarMinimo(gravado)
   } catch (e) {
     notify(msg(e), 'error')
   }
@@ -599,8 +750,7 @@ async function removerItem(row: any) {
   const ok = await confirmar({ title: 'Excluir este item?', message: `Produto ${row.codproduto} sai do pedido.`, confirmLabel: 'Excluir', danger: true })
   if (!ok) return
   await excluirItem(store.cabecalho.numpedido, row.codproduto, row.tabela)
-  await refreshItens()
-  await persistTotal()
+  await atualizarPedido()
 }
 
 // --- Desconto ---
@@ -617,8 +767,7 @@ async function aplicarDescontoPedido() {
       valor: Number(descontoValor.value) || 0,
       porItem: descontoModo.value === 'reais',
     })
-    await refreshItens()
-    await persistTotal()
+    await atualizarPedido()
   } catch (e) {
     notify(msg(e), 'error')
   }
@@ -630,15 +779,14 @@ async function removerDesconto() {
   if (!n) return
   try {
     await aplicarDesconto(n, { aplicar: false, valor: 0, porItem: false })
-    await refreshItens()
-    await persistTotal()
+    await atualizarPedido()
   } catch (e) {
     notify(msg(e), 'error')
   }
 }
 
 // --- Financeiro ---
-const fin = reactive({ cobranca: '', condicao: '', valor: '', autorizacao: '' })
+const fin = reactive({ cobranca: '', condicao: '' as string | number, valor: '', autorizacao: '' })
 const parcelas = ref<any[]>([])
 const remaining = ref(0)
 
@@ -652,14 +800,18 @@ async function refreshParcelas() {
   const r = await listarParcelas(n)
   parcelas.value = r.rows
   remaining.value = r.remaining
+  fin.valor = r.remaining > 0 ? r.remaining.toFixed(2) : ''
 }
 
 async function gravarParcela() {
-  const n = await ensureNumpedido()
+  const n = await criarOuAvisar()
   if (!n) return
+  if (situacaoDoCliente(store.cabecalho.tipo) === 'somente-avista' && fin.condicao && !isCondAvista(condicoes.value, fin.condicao)) {
+    await avisoAvista()
+    return
+  }
   try {
     await incluirParcela(n, fin.cobranca, fin.condicao, Number(fin.valor) || 0, fin.autorizacao, total.value)
-    fin.valor = ''
     fin.autorizacao = ''
     await refreshParcelas()
   } catch (e) {
@@ -676,6 +828,19 @@ async function removerParcela(id: number) {
 const acrescimo = reactive({ vlquilo: '', vlunidade: '' })
 const snquilo = ref(false)
 const snunidade = ref(false)
+// Um ou outro.
+watch(snquilo, (v) => {
+  if (v) {
+    snunidade.value = false
+    acrescimo.vlunidade = ''
+  } else acrescimo.vlquilo = ''
+})
+watch(snunidade, (v) => {
+  if (v) {
+    snquilo.value = false
+    acrescimo.vlquilo = ''
+  } else acrescimo.vlunidade = ''
+})
 
 function preloadNegociacao() {
   const c = store.cabecalho
@@ -697,8 +862,7 @@ async function aplicarAcrescimoPedido() {
       snquilo: snquilo.value ? 'S' : 'N',
       snunidade: snunidade.value ? 'S' : 'N',
     })
-    await refreshItens()
-    await persistTotal()
+    await atualizarPedido()
   } catch (e) {
     notify(msg(e), 'error')
   }
@@ -710,8 +874,7 @@ async function removerAcrescimo() {
   if (!n) return
   try {
     await aplicarAcrescimo(n, { aplicar: false, vlquilo: 0, vlunidade: 0, snquilo: 'N', snunidade: 'N' })
-    await refreshItens()
-    await persistTotal()
+    await atualizarPedido()
   } catch (e) {
     notify(msg(e), 'error')
   }
@@ -752,33 +915,32 @@ async function imprimir() {
   }
 }
 
-async function finalizarPedido() {
+/** Devolve `true` se o pedido foi finalizado. */
+async function finalizarPedido(): Promise<boolean> {
   try {
     const n = await ensureNumpedido()
-    if (!n) return
+    if (!n) return false
     if (store.pedstatus !== 'A') {
       notify('Pedido não está aberto.')
-      return
+      return false
+    }
+    const cabecalhoInvalido = validarCabecalho()
+    if (cabecalhoInvalido) {
+      notify(cabecalhoInvalido)
+      return false
     }
 
     const mped = await query<any>('SELECT idpedido FROM mped WHERE numpedido = ?', [n])
     if (mped.length === 0) {
       notify('Pedido sem Itens, Impossível Finalizar.')
-      return
+      return false
     }
-
-    const u = auth.usuario
-    if (
-      u?.limcred === 'S' &&
-      store.cabecalho.tipo !== 'E' &&
-      Number(cliente.limcred) > 0 &&
-      !(u.libera === 'S' && isCondAvista(condicoes.value, store.cabecalho.condpag))
-    ) {
-      if (Number(cliente.credito) - total.value < 0) {
-        notify('Pedido Ultrapassa o Limite de Crédito Disponível')
-        return
-      }
+    // Pedido com condição inativa nunca seria enviado na sincronização.
+    if (!condicoes.value.some((c) => String(c.codigo) === String(store.cabecalho.condpag))) {
+      notify('Condição de Pagamento Inativa, escolha outra.')
+      return false
     }
+    if (semCredito()) return false
 
     const cli = store.cabecalho.clifor
     const [condCliente, cobCliente] = await Promise.all([
@@ -788,13 +950,13 @@ async function finalizarPedido() {
     const finResult = await validarFinanceiro(
       n,
       total.value,
-      u?.finped === 'S',
+      auth.usuario?.finped === 'S',
       condCliente.map((r) => r.condicao),
       cobCliente.map((r) => r.cobranca),
     )
     if (!finResult.ok) {
       notify(String(finResult.msg))
-      return
+      return false
     }
 
     await store.salvar()
@@ -802,41 +964,80 @@ async function finalizarPedido() {
       cEstoque: store.cabecalho.estoque,
       empresa: store.cabecalho.empresa,
       local: store.cabecalho.local,
-      nfe: NFE,
     })
     store.pedstatus = 'F'
     store.cabecalho.status = 'F'
-    if (NFE === 'S') {
-      await pushClientes()
-      await pushPedidos()
-    }
     await refreshItens()
     notify('Pedido finalizado', 'success')
+    return true
   } catch (e) {
     notify(msg(e), 'error')
+    return false
   }
 }
 
-// NF-e só existe para pedido sincronizado, que não pode mais ser gravado: emite
-// direto e recarrega o pedido para refletir sefaz/arquivo/status devolvidos.
+// A NF-e depende do pedido sincronizado: aberto ou finalizado, é finalizado e enviado
+// antes. Depois recarrega para refletir sefaz/arquivo/status devolvidos.
 async function nfe() {
   const n = store.cabecalho.numpedido
   try {
     if (danfeEmitida(situacao.value)) {
-      const u = auth.usuario
-      if (u) await openPdf(pdfUrl(`danfe/li${u.codlic}/${store.cabecalho.file}`))
+      if (!(await abrirDanfe(store.cabecalho.file))) notify('Pedido emitido com sucesso', 'success')
       return
     }
-    await emitirNfe(n, store.cabecalho.lancto ?? 0)
-    await store.carregar(n)
+    await exigirServidorLivre()
+    if (store.pedstatus === 'A' || store.pedstatus === 'F') {
+      const ok = await confirmar({
+        title: 'Emitir a NF-e agora?',
+        message: `O pedido ${n} será ${store.pedstatus === 'A' ? 'finalizado, ' : ''}enviado ao servidor e a nota será emitida.`,
+        confirmLabel: 'Emitir NF-e',
+      })
+      if (!ok) return
+      if (store.pedstatus === 'A' && !(await finalizarPedido())) return
+      await pushClientes()
+      await pushPedidos(n)
+      await recarregarSituacao(n)
+      if (!enviado()) {
+        notify('O servidor ainda não confirmou o pedido. Sincronize e tente de novo.', 'error')
+        return
+      }
+    }
+    const comDanfe = await emitirNfe(n, store.cabecalho.lancto ?? 0)
+    await recarregarSituacao(n)
+    if (!comDanfe) notify('Pedido emitido com sucesso', 'success')
   } catch (e) {
     notify(msg(e), 'error')
+    if (n) await recarregarSituacao(n)
   }
+}
+
+const enviado = () => ['S', 'Z'].includes(store.pedstatus)
+
+async function recarregarSituacao(n: string) {
+  await store.carregar(n)
+  await refreshItens()
 }
 
 async function boleto() {
   try {
     await emitirBoleto(store.cabecalho.lancto ?? 0)
+  } catch (e) {
+    notify(msg(e), 'error')
+  }
+}
+
+async function imprimirPeloErp() {
+  try {
+    await imprimirErp(store.cabecalho.lancto ?? 0)
+  } catch (e) {
+    notify(msg(e), 'error')
+  }
+}
+
+async function reenviar() {
+  try {
+    await store.reenviar()
+    notify(`Pedido ${store.cabecalho.numpedido} pronto para ser reenviado.`, 'success')
   } catch (e) {
     notify(msg(e), 'error')
   }
@@ -861,9 +1062,11 @@ const motivoImpressao = computed(() => motivoImprimir(situacao.value))
 const acoes = computed(() => {
   const s = situacao.value
   return [
-    { label: danfeEmitida(s) ? 'Ver DANFE' : 'Emitir NF-e', icon: 'file', fn: nfe, motivo: motivoNfe(s) },
+    { label: danfeEmitida(s) ? 'Ver DANFE' : 'Emitir NF-e', icon: 'file', fn: nfe, motivo: motivoNfePedido(s) },
     { label: 'Gerar boleto', icon: 'barcode', fn: boleto, motivo: motivoBoleto(s) },
     { label: 'Gerar termo', icon: 'receipt', fn: gerarTermo, motivo: motivoBoleto(s) },
+    { label: 'Imprimir pelo ERP', icon: 'printer', fn: imprimirPeloErp, motivo: motivoBoleto(s) },
+    ...(s.status === 'V' ? [{ label: 'Reenviar pedido', icon: 'send', fn: reenviar, motivo: motivoReenviar(s) }] : []),
     { label: 'Reabrir pedido', icon: 'undo', fn: reabrir, motivo: motivoReabrir(s) },
     ...(s.tipo === 'O' ? [{ label: 'Transformar orçamento em pedido', icon: 'orders', fn: transformar, motivo: motivoTransformar(s) }] : []),
     { label: 'Duplicar pedido', icon: 'copy', fn: duplicar, motivo: motivoDuplicar(s) },
@@ -982,15 +1185,15 @@ onBeforeUnmount(() => {
 })
 
 onMounted(async () => {
-  ;[empresas.value, vendedores.value, condicoes.value, tabelas.value, cargas.value, comissoes.value, cobrancas.value] =
+  ;[empresas.value, vendedores.value, condicoes.value, tabelas.value, cargas.value, comissoes.value, grupos.value] =
     await Promise.all([
       query<any>('SELECT * FROM empresas'),
       query<any>('SELECT * FROM vendedores'),
       query<any>("SELECT * FROM condicao WHERE inativo = 'N'"),
-      query<any>("SELECT * FROM tpreco WHERE usa_cliente = 'N'"),
+      query<any>('SELECT * FROM tpreco'),
       query<any>("SELECT * FROM carga WHERE inativo = 'N'"),
       query<any>('SELECT * FROM comissao'),
-      query<any>('SELECT * FROM cobrancas'),
+      query<any>('SELECT codigo, descricao FROM grupos ORDER BY descricao'),
     ])
 
   await store.carregarPrecos()
@@ -1004,15 +1207,24 @@ function rotaNumpedido(): string {
 
 async function carregarRota() {
   const n = rotaNumpedido()
+  prodGrupo.value = ''
   Object.assign(cliente, { id: 0, codigo: 0, fantasia: '', razao: '', cnpj: '', limcred: 0, credito: 0, saldo: 0 })
   limparProdutos()
   prodView.value = 'buscar'
-  if (n) {
-    await store.carregar(n)
-    await carregarCliente()
-  } else {
-    await store.novo()
+  tituloAtrasado.value = null
+  if (n) await store.carregar(n)
+  else await store.novo()
+  // Novo só consome a liberação ao ser gravado; retomar um pedido aberto, já ao abrir.
+  if (!n || store.pedstatus === 'A') {
+    try {
+      await exigirProdutosSincronizados({ consumir: !!n })
+    } catch (e) {
+      await router.replace({ name: 'sync' })
+      await avisar({ title: 'Sincronize os produtos', message: msg(e) })
+      return
+    }
   }
+  await carregarCliente()
   if (!store.cabecalho.data) store.cabecalho.data = today()
   if (!store.cabecalho.tipo) store.cabecalho.tipo = 'S'
   preloadNegociacao()
@@ -1100,18 +1312,18 @@ watch(
       <template v-if="step === 0">
         <div>
           <h2 class="text-[22px] font-semibold tracking-tight">Para quem é o pedido?</h2>
-          <p class="meta mt-1">{{ isEdit ? 'Confira os dados do pedido.' : 'As condições vêm preenchidas com as do último pedido. Confira antes de continuar.' }}</p>
+          <p class="meta mt-1">{{ isEdit ? 'Confira os dados do pedido.' : 'As condições vêm do último pedido e se ajustam ao cliente escolhido. Confira antes de continuar.' }}</p>
         </div>
 
         <section class="panel p-4 space-y-4">
-          <button type="button" class="input text-left flex items-center gap-3 py-3" @click="abrirCliente">
+          <button type="button" class="input text-left flex items-center gap-3 py-3" data-campo="cliente" :disabled="travado" @click="abrirCliente">
             <span class="h-10 w-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
               <Icon name="users" />
             </span>
             <span class="min-w-0 flex-1">
               <span v-if="cliente.codigo" class="block font-semibold truncate">{{ cliente.fantasia || cliente.razao }}</span>
               <span v-else class="block text-ink-400">Selecionar cliente</span>
-              <span v-if="cliente.codigo" class="block meta truncate">Crédito disponível R$ {{ formatReal(cliente.credito) }}</span>
+              <span v-if="cliente.codigo" class="block meta truncate">Crédito disponível R$ {{ formatReal(credito) }}</span>
             </span>
             <span class="link">{{ cliente.codigo ? 'Trocar' : 'Escolher' }}</span>
           </button>
@@ -1120,11 +1332,21 @@ watch(
               <div><dt class="meta text-xs">Código</dt><dd class="font-medium tabular-nums">{{ cliente.codigo }}</dd></div>
               <div><dt class="meta text-xs">CNPJ/CPF</dt><dd class="font-medium tabular-nums">{{ cliente.cnpj || '—' }}</dd></div>
               <div><dt class="meta text-xs">Limite de crédito</dt><dd class="font-medium tabular-nums">R$ {{ formatReal(cliente.limcred) }}</dd></div>
-              <div><dt class="meta text-xs">Saldo</dt><dd class="font-medium tabular-nums">R$ {{ formatReal(cliente.saldo) }}</dd></div>
+              <div><dt class="meta text-xs">Saldo retorno sucata</dt><dd class="font-medium tabular-nums">{{ formatNumero(cliente.saldo) }}</dd></div>
             </dl>
             <div class="grid grid-cols-2 gap-2">
               <button type="button" class="btn btn-tonal btn-sm" @click="abrirSucata">Saldo de sucata</button>
               <button type="button" class="btn btn-tonal btn-sm" @click="abrirSaldos">Saldos do cliente</button>
+            </div>
+            <div v-if="consumidor" class="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
+              <label class="block">
+                <span class="label">Nome do consumidor</span>
+                <input v-model="store.cabecalho.cliente_nome" type="text" maxlength="60" class="input" :disabled="travado" />
+              </label>
+              <label class="block">
+                <span class="label">CPF</span>
+                <input v-model="store.cabecalho.cliente_cpf" type="text" inputmode="numeric" maxlength="20" class="input" :disabled="travado" />
+              </label>
             </div>
           </template>
         </section>
@@ -1133,7 +1355,8 @@ watch(
           <div>
             <span class="label">Tipo</span>
             <Segmented
-              v-model="store.cabecalho.tipo"
+              :model-value="store.cabecalho.tipo"
+              @update:model-value="trocarTipo"
               :options="[{ value: 'S', label: 'Saída' }, { value: 'E', label: 'Entrada' }, { value: 'O', label: 'Orçamento' }]"
               label="Tipo do pedido"
             />
@@ -1150,7 +1373,7 @@ watch(
           </div>
           <label class="block">
             <span class="label">Empresa</span>
-            <SelectField v-model="store.cabecalho.empresa" :options="empresas.map((e) => ({ value: e.empresa, label: e.fantasia }))" title="Selecionar empresa" placeholder="Selecione a empresa" />
+            <SelectField v-model="store.cabecalho.empresa" :options="empresas.map((e) => ({ value: e.empresa, label: e.fantasia }))" title="Selecionar empresa" placeholder="Selecione a empresa" data-campo="empresa" :disabled="travado" @change="trocarEmpresa" />
           </label>
           <label class="block">
             <span class="label">Vendedor</span>
@@ -1170,13 +1393,14 @@ watch(
               Cobrança {{ store.cabecalho.cobranca || '—' }}, local {{ store.cabecalho.local ?? '—' }}
             </p>
           </div>
+          <p v-if="travado && aberto" class="meta">Empresa, cliente e condição não mudam enquanto houver itens no pedido.</p>
           <label class="block">
             <span class="label">Condição de pagamento</span>
-            <SelectField v-model="store.cabecalho.condpag" :options="condicoes.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar condição de pagamento" placeholder="Selecione a condição" />
+            <SelectField v-model="store.cabecalho.condpag" :options="opcoes.condicoes.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar condição de pagamento" placeholder="Selecione a condição" data-campo="condicao" :disabled="travado" @change="trocarCondicao" />
           </label>
           <label class="block">
             <span class="label">Tabela de preço</span>
-            <SelectField v-model="store.cabecalho.tabela" :options="tabelas.map((t) => ({ value: t.codigo, label: t.descricao }))" title="Selecionar tabela de preço" placeholder="Selecione a tabela" />
+            <SelectField v-model="store.cabecalho.tabela" :options="opcoes.tabelas.map((t) => ({ value: t.codigo, label: t.descricao }))" title="Selecionar tabela de preço" placeholder="Selecione a tabela" />
           </label>
           <div>
             <span class="label">Carga</span>
@@ -1208,6 +1432,16 @@ watch(
           <div class="space-y-3">
             <SearchField v-model="prodBusca" placeholder="Buscar produto" @submit="buscarProdutos()" />
             <Segmented v-model="prodCampo" :options="PROD_OPTIONS" label="Buscar produto por" />
+            <SelectField
+              v-if="grupos.length"
+              v-model="prodGrupo"
+              :options="[{ value: '', label: 'Todos os grupos' }, ...grupos.map((g) => ({ value: String(g.codigo), label: g.descricao }))]"
+              title="Selecionar grupo"
+              prefix="Grupo:"
+              size="sm"
+              aria-label="Grupo"
+              @change="buscarProdutos()"
+            />
           </div>
 
           <div v-if="prodSearched && produtos.length === 0" class="panel">
@@ -1221,9 +1455,18 @@ watch(
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
                   <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ p.descvis }}</p>
-                  <p class="meta tabular-nums mt-0.5">Cód. {{ p.codigo }}, estoque {{ p.estoque ?? 0 }}</p>
+                  <p class="meta tabular-nums mt-0.5">Cód. {{ p.codigo }}, estoque {{ formatNumero(p.estoque) }}</p>
+                  <p class="meta tabular-nums mt-0.5">Mínimo R$ {{ formatReal(p.minimo) }}, Comprado {{ formatNumero(p.comprado) }}</p>
+                  <span v-if="itemDoProduto(p)" class="mt-1.5 inline-flex items-center gap-1 h-5 rounded-full bg-success-50 pl-1.5 pr-2 text-[11px] font-semibold text-success-800">
+                    <Icon name="check" :size="12" :stroke="2.6" /> Já adicionado
+                  </span>
                 </div>
-                <p class="text-[15px] font-semibold tabular-nums shrink-0">R$ {{ formatReal(p.venda) }}</p>
+                <div class="flex items-center gap-1 shrink-0">
+                  <p class="text-[15px] font-semibold tabular-nums">R$ {{ formatReal(p.venda) }}</p>
+                  <button v-if="p.observacao" type="button" class="icon-btn" :aria-label="`Ver observação de ${p.descvis}`" @click="verObservacao(p)">
+                    <Icon name="info" :size="18" />
+                  </button>
+                </div>
               </div>
               <div class="flex items-center gap-2 mt-3">
                 <label class="w-20">
@@ -1240,10 +1483,19 @@ watch(
                   aria-label="Unidade"
                 />
                 <button class="btn btn-primary btn-sm min-h-10 flex-1" :disabled="!aberto" @click="quickAdd(p)">
-                  <Icon name="plus" :size="16" /> Adicionar
+                  <Icon :name="itemDoProduto(p) ? 'check' : 'plus'" :size="16" /> {{ itemDoProduto(p) ? 'Atualizar' : 'Adicionar' }}
                 </button>
-                <button class="icon-btn border border-ink-200" aria-label="Ajustar preço e desconto" :disabled="!aberto" @click="abrirModalProduto(p)">
+                <button class="icon-btn border border-ink-200" aria-label="Ajustar preço e desconto" :disabled="!aberto" @click="itemDoProduto(p) ? abrirModalItem(itemDoProduto(p)) : abrirModalProduto(p)">
                   <Icon name="edit" :size="18" />
+                </button>
+                <button
+                  v-if="itemDoProduto(p)"
+                  class="icon-btn border border-ink-200 text-danger-600"
+                  :aria-label="`Excluir ${p.descvis} do pedido`"
+                  :disabled="!aberto"
+                  @click="removerItem(itemDoProduto(p))"
+                >
+                  <Icon name="trash" :size="18" />
                 </button>
               </div>
             </li>
@@ -1284,11 +1536,11 @@ watch(
           <div class="flex items-start justify-between gap-3">
             <div>
               <h2 class="section-title">Parcelas</h2>
-              <p class="meta mt-0.5">{{ finObrigatorio ? 'Distribua o total entre as cobranças.' : 'Opcional para este usuário.' }}</p>
+              <p class="meta mt-0.5">{{ finObrigatorio ? 'Distribua o total entre as cobranças.' : 'Opcional. Se informar, a soma deve ser igual ao total do pedido.' }}</p>
             </div>
-            <p class="text-right shrink-0">
-              <span class="block meta text-xs">Falta distribuir</span>
-              <span class="font-semibold tabular-nums" :class="pagamentoOk ? 'text-success-600' : 'text-sun-800'">R$ {{ formatReal(remaining) }}</span>
+            <p v-if="exigeDistribuir" class="text-right shrink-0">
+              <span class="block meta text-xs">{{ faltaLabel }}</span>
+              <span class="font-semibold tabular-nums" :class="pagamentoOk ? 'text-success-600' : 'text-sun-800'">R$ {{ formatReal(Math.abs(remaining)) }}</span>
             </p>
           </div>
           <ul v-if="parcelas.length" class="divide-y divide-ink-100 border-y border-ink-100 -mx-4">
@@ -1306,11 +1558,11 @@ watch(
           <div class="grid grid-cols-2 gap-3">
             <label class="block col-span-2">
               <span class="label">Cobrança</span>
-              <SelectField v-model="fin.cobranca" :options="cobrancas.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar cobrança" placeholder="Selecione a cobrança" />
+              <SelectField v-model="fin.cobranca" :options="opcoes.cobrancas.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar cobrança" placeholder="Selecione a cobrança" />
             </label>
             <label class="block col-span-2">
               <span class="label">Condição</span>
-              <SelectField v-model="fin.condicao" :options="condicoes.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar condição" placeholder="Selecione a condição" />
+              <SelectField v-model="fin.condicao" :options="opcoes.condicoes.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar condição" placeholder="Selecione a condição" />
             </label>
             <label class="block">
               <span class="label">Valor</span>
@@ -1329,15 +1581,15 @@ watch(
         <section class="panel p-4 space-y-4">
           <div>
             <h2 class="section-title">Desconto no pedido</h2>
-            <p class="meta mt-0.5">Aplicado a todos os itens. Só vale para pedido aberto.</p>
+            <p class="meta mt-0.5">{{ descontoModo === 'percent' ? 'Aplicado a todos os itens.' : 'Valor total, dividido igualmente entre os itens.' }} Só vale para pedido aberto.</p>
           </div>
           <Segmented
             v-model="descontoModo"
-            :options="[{ value: 'percent', label: 'Percentual (%)' }, { value: 'reais', label: 'R$ por item' }]"
+            :options="[{ value: 'percent', label: 'Percentual (%)' }, { value: 'reais', label: 'Valor (R$)' }]"
             label="Tipo de desconto"
           />
           <label class="block">
-            <span class="sr-only">{{ descontoModo === 'percent' ? 'Desconto em %' : 'Desconto em R$ por item' }}</span>
+            <span class="sr-only">{{ descontoModo === 'percent' ? 'Desconto em %' : 'Desconto total em R$' }}</span>
             <input v-model.number="descontoValor" type="number" inputmode="decimal" min="0" class="input" placeholder="0,00" />
           </label>
           <div class="grid grid-cols-2 gap-2">
@@ -1371,22 +1623,23 @@ watch(
         </section>
 
         <section class="panel p-4 space-y-4">
-          <h2 class="section-title">Frete e negociação</h2>
+          <h2 class="section-title">Frete, peso e sucata</h2>
+          <p class="flex items-baseline justify-between gap-3 text-[15px]">
+            <span class="text-ink-500">Peso do pedido</span>
+            <span class="font-semibold tabular-nums">{{ formatNumero(pesoPedido) }} kg</span>
+          </p>
           <div class="grid grid-cols-2 gap-3">
             <label class="block">
-              <span class="label">Frete (R$)</span>
+              <span class="label">Frete embutido (R$)</span>
               <input v-model="store.cabecalho.valor_frete" type="number" inputmode="decimal" min="0" step="0.01" class="input" placeholder="0,00" />
             </label>
             <label class="block">
-              <span class="label">Retsuc (R$)</span>
+              <span class="label">Retorno sucata (kg)</span>
               <input v-model="store.cabecalho.retsuc" type="number" inputmode="decimal" min="0" step="0.01" class="input" placeholder="0,00" />
             </label>
           </div>
           <label class="flex items-center justify-between gap-3">
-            <span>
-              <span class="block text-[15px] font-medium">Negociação resolvida</span>
-              <span class="meta">Marque quando as condições estiverem acertadas.</span>
-            </span>
+            <span class="text-[15px] font-medium">Resolvido</span>
             <input
               type="checkbox"
               class="switch"
@@ -1407,7 +1660,7 @@ watch(
           </p>
           <p class="meta mt-2 tabular-nums">
             {{ itens.length }} {{ itens.length === 1 ? 'item' : 'itens' }}, {{ quantidade }} {{ quantidade === 1 ? 'unidade' : 'unidades' }},
-            flex R$ {{ formatReal(flexPedido) }} (saldo R$ {{ formatReal(saldoFlex) }})
+            {{ formatNumero(pesoPedido) }} kg, flex R$ {{ formatReal(flexPedido) }} (saldo R$ {{ formatReal(saldoFlex) }})
           </p>
         </div>
 
@@ -1474,11 +1727,12 @@ watch(
           </div>
           <p v-if="parcelas.length === 0" class="text-sm text-ink-500">Nenhuma parcela.</p>
           <p
+            v-if="exigeDistribuir"
             class="mt-2 flex items-center gap-1.5 text-[13px] font-semibold"
-            :class="pagamentoOk ? 'text-success-600' : finObrigatorio ? 'text-sun-800' : 'text-ink-500'"
+            :class="pagamentoOk ? 'text-success-600' : 'text-sun-800'"
           >
             <Icon :name="pagamentoOk ? 'check' : 'alert'" :size="16" :stroke="2.2" />
-            {{ pagamentoOk ? 'Total distribuído' : `Falta distribuir R$ ${formatReal(remaining)}` }}
+            {{ pagamentoOk ? 'Total distribuído' : `${faltaLabel} R$ ${formatReal(Math.abs(remaining))}` }}
           </p>
           <p v-if="Number(store.cabecalho.valor_frete) > 0 || snquilo || snunidade" class="mt-1 meta">
             {{ [Number(store.cabecalho.valor_frete) > 0 && `frete R$ ${formatReal(store.cabecalho.valor_frete)}`, snquilo && `acréscimo R$ ${formatReal(acrescimo.vlquilo)}/kg`, snunidade && `acréscimo R$ ${formatReal(acrescimo.vlunidade)}/un`].filter(Boolean).join(', ') }}
@@ -1528,7 +1782,7 @@ watch(
 
     <Sheet :open="showAcoes" title="Ações do pedido" :subtitle="titulo" @close="showAcoes = false">
       <ul class="-mx-5 divide-y divide-ink-100">
-        <li v-for="a in acoes" :key="a.icon">
+        <li v-for="a in acoes" :key="a.label">
           <button
             class="list-row px-5 flex items-center gap-3"
             :class="a.motivo ? 'text-ink-400' : a.danger ? 'text-danger-700' : ''"
@@ -1610,6 +1864,10 @@ watch(
             />
           </label>
           <label class="block">
+            <span class="label">Valor unitário</span>
+            <MoneyInput v-model="modal.unitario" data-campo="unitario" :disabled="!aberto || Number(modal.descinc) > 0" />
+          </label>
+          <label class="block">
             <span class="label">Desc. incluso (%)</span>
             <input v-model.number="modal.descinc" type="number" inputmode="decimal" min="0" class="input" />
           </label>
@@ -1635,10 +1893,38 @@ watch(
           <div class="px-3 py-3"><dt class="meta text-xs">Unitário</dt><dd class="font-semibold tabular-nums">{{ formatReal(modalPreview.vlunit) }}</dd></div>
           <div class="px-3 py-3"><dt class="meta text-xs">Total</dt><dd class="font-semibold tabular-nums">{{ formatReal(modal.quantidade > 0 ? modalPreview.total : 0) }}</dd></div>
         </dl>
+        <p class="meta tabular-nums">Mínimo R$ {{ formatReal(modal.minimo * modalFator) }}, máximo R$ {{ formatReal(modal.maximo * modalFator) }}</p>
+
+        <div>
+          <span class="label">Histórico de venda</span>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" class="btn btn-tonal btn-sm" @click="abrirHistorico(false)">Do produto</button>
+            <button type="button" class="btn btn-tonal btn-sm" @click="abrirHistorico(true)">Deste cliente</button>
+          </div>
+        </div>
       </div>
       <template #footer>
         <button class="btn btn-primary w-full" :disabled="!aberto" @click="gravarModal">Salvar item</button>
       </template>
+    </Sheet>
+
+    <Sheet
+      :open="historico.open"
+      title="Histórico de venda"
+      :subtitle="historico.doCliente ? `${modal.descricao}, ${cliente.fantasia}` : modal.descricao"
+      size="tall"
+      @close="historico.open = false"
+    >
+      <EmptyState v-if="historico.rows.length === 0" icon="chart" label="Nenhuma venda encontrada" />
+      <ul v-else class="divide-y divide-ink-100 -mx-5">
+        <li v-for="(h, i) in historico.rows" :key="i" class="flex items-start justify-between gap-3 px-5 py-3">
+          <div class="min-w-0">
+            <p class="text-[15px] font-medium tabular-nums">Nº {{ h.pedido }}, {{ mudadata(h.data) }}</p>
+            <p class="meta truncate">{{ [h.condicao, h.tabela && `Tabela ${h.tabela}`].filter(Boolean).join(', ') }}</p>
+          </div>
+          <p class="text-[15px] font-semibold tabular-nums shrink-0">{{ formatNumero(h.quant) }} × R$ {{ formatReal(h.vlunit) }}</p>
+        </li>
+      </ul>
     </Sheet>
 
     <Sheet :open="showSucata" title="Saldo de sucata" :subtitle="cliente.fantasia" @close="showSucata = false">

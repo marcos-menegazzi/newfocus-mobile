@@ -19,23 +19,14 @@ interface TituloRow {
 const route = useRoute()
 const { notify } = useToast()
 
-const numero = computed(() => {
-  const p = route.params.numero
-  return Array.isArray(p) ? p[0] : p
-})
-const idcliente = computed(() => {
-  const q = route.query.idcliente
-  return typeof q === 'string' ? q : ''
-})
+// O número do título não serve de chave na rota: pode ter barra e se repetir entre empresas.
+const idtitulo = computed(() => Number(route.params.idtitulo))
 
 const titulo = ref<TituloRow | null>(null)
 
 onMounted(async () => {
   try {
-    const rows = await query<TituloRow>(
-      'SELECT * FROM titulos WHERE clifor = ? AND numero = ?',
-      [idcliente.value, numero.value],
-    )
+    const rows = await query<TituloRow>('SELECT * FROM titulos WHERE idtitulo = ?', [idtitulo.value])
     titulo.value = rows[0] ?? null
   } catch (e) {
     notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')

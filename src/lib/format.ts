@@ -11,6 +11,11 @@ export function formatNumero(n: number | string | null | undefined, max = 3): st
   return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: max }).format(v)
 }
 
+/** Observações do ERP usam `;` como quebra de linha. */
+export function textoObservacao(s: string | null | undefined): string {
+  return (s ?? '').replace(/;\s*/g, '\n').trim()
+}
+
 export function mudadata(d: string): string {
   if (!d || d.length < 10) return d ?? ''
   const [y, m, day] = d.slice(0, 10).split('-')

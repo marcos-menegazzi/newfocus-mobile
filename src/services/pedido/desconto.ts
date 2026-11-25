@@ -57,7 +57,7 @@ export async function aplicarDesconto(numpedido: string | number, opts: Desconto
       descper = 'S'
     }
     total = round(total - desc, 2)
-    if (round(total / quantidade, 2) < row.minimo) {
+    if (round(total / quantidade, 2) < round(row.minimo * (row.fator || 1), 2)) {
       throw new Error(`Produto ${row.codproduto} ficará com Valor abaixo do minimo. Desconto não será aplicado.`)
     }
     updates.push({ desconto, total, descper, idpedido: row.idpedido })
@@ -98,7 +98,7 @@ export async function aplicarAcrescimo(numpedido: string | number, opts: Acresci
     let total = round(quantidade * vlrunitario, 2)
     const desc = row.descper !== 'S' ? vldesconto : round(quantidade * vlbase * vldesconto / 100, 2)
     total = round(total - desc, 2)
-    if (round(total / quantidade, 2) > row.maximo) {
+    if (round(total / quantidade, 2) > round(row.maximo * (row.fator || 1), 2)) {
       throw new Error(`Produto ${row.codproduto} ficará com Valor Acima do máximo. Acréscimo não será aplicado.`)
     }
     updates.push({ vlnegocia, vlrunitario, total, idpedido: row.idpedido })

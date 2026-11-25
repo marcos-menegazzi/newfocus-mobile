@@ -27,7 +27,7 @@ export const usePedidoStore = defineStore('pedido', {
     async carregarPrecos() {
       const [fatores, tabelas, mvtpreco] = await Promise.all([
         query<any>('SELECT produto, unidade, fator FROM fatores'),
-        query<any>('SELECT codigo, flex FROM tpreco'),
+        query<any>("SELECT codigo, flex FROM tpreco WHERE usa_cliente = 'N'"),
         query<any>('SELECT tabela_codigo, produto, venda, maximo, minimo FROM mvtpreco'),
       ])
       this.fatores = fatores.map(

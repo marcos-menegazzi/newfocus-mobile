@@ -32,3 +32,19 @@ export function childText(el: Element | undefined, tag: string): string {
   if (!n || !n.childNodes[0]) return ''
   return n.childNodes[0].nodeValue ?? ''
 }
+
+/**
+ * Linhas de uma lista do servidor que têm o campo `chave`. Sem registros, o servidor
+ * devolve `<retorno><result>false</result></retorno>` em vez de uma lista vazia.
+ */
+export function linhas(doc: Document, rootTag: string, chave: string): Element[] {
+  return rowChildren(doc, rootTag).filter((el) => el.getElementsByTagName(chave).length > 0)
+}
+
+/** Nome do arquivo em `<retorno><status/><arquivo/></retorno>`; falha se o servidor não o localizou. */
+export function arquivoRetorno(doc: Document, naoLocalizado: string): string {
+  const [status, arquivo] = rowChildren(doc, 'retorno')
+  const nome = arquivo?.textContent?.trim() ?? ''
+  if (!nome || status.textContent?.trim().toLowerCase() === 'false') throw new Error(naoLocalizado)
+  return nome
+}

@@ -1,5 +1,5 @@
 import { call } from './context'
-import { childText, rowChildren } from './helpers'
+import { arquivoRetorno, childText, linhas } from './helpers'
 import { openPdf, pdfUrl } from '../files'
 import { useAuthStore } from '../../stores/auth'
 
@@ -15,7 +15,7 @@ export async function titulosAbertos(cliente: string | number): Promise<TituloAb
   const u = useAuthStore().usuario
   if (!u) throw new Error('sem usuário logado')
   const doc = await call(`P_TAWEB:EXEC("${u.usuario}", ${cliente})`)
-  return rowChildren(doc, 'retorno').map((r) => ({
+  return linhas(doc, 'retorno', 'numero').map((r) => ({
     numero: childText(r, 'numero'),
     cobranca: childText(r, 'cobranca'),
     dtvenc: childText(r, 'dtvenc'),
@@ -28,6 +28,6 @@ export async function duplicata(lancto: string | number): Promise<void> {
   const u = useAuthStore().usuario
   if (!u) throw new Error('sem usuário logado')
   const doc = await call(`P_DUPWEB01:EXEC(${lancto})`)
-  const file = rowChildren(doc, 'retorno')[1]?.textContent ?? ''
+  const file = arquivoRetorno(doc, 'Não localizada duplicata.')
   await openPdf(pdfUrl(`duplicata/${file}`))
 }

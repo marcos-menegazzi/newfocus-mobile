@@ -1,7 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
-const routes = [
+export const routes = [
   { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
   { path: '/', name: 'home', component: () => import('../views/HomeView.vue') },
   { path: '/config', name: 'config', component: () => import('../views/ConfigView.vue'), meta: { shared: true } },
@@ -15,7 +15,7 @@ const routes = [
   { path: '/pedidos/novo', name: 'pedido-novo', component: () => import('../views/NovoPedidoView.vue') },
   { path: '/pedidos/:numpedido', name: 'pedido-edit', component: () => import('../views/NovoPedidoView.vue') },
   { path: '/titulos/:idcliente', name: 'titulos', component: () => import('../views/ConsultaTitulosView.vue') },
-  { path: '/titulo/:numero', name: 'titulo', component: () => import('../views/TituloView.vue') },
+  { path: '/titulo/:idtitulo', name: 'titulo', component: () => import('../views/TituloView.vue') },
   { path: '/venda/:pedido', name: 'venda', component: () => import('../views/VendaView.vue') },
   { path: '/historico-vendas', name: 'historico-vendas', component: () => import('../views/HistoricoVendasView.vue') },
   { path: '/agenda', name: 'agenda', component: () => import('../views/AgendaView.vue') },

@@ -42,6 +42,13 @@ const fat = computed(() => route.query.fat === 'S')
 
 const itens = ref<ItemRow[]>([])
 
+function condicoes(i: ItemRow): string {
+  return [
+    i.condicao && i.condicao !== 'S/C' && `Condição ${i.condicao}`,
+    i.tabela && `Tabela ${i.tabela}`,
+  ].filter(Boolean).join(', ')
+}
+
 onMounted(async () => {
   try {
     const sql = `SELECT h.produto, h.descricao, h.quant, sum(h.vlunit) AS vlunit, sum(h.vldescto) AS vldescto, sum(h.vltotal) AS vltotal, v.condicao, h.tabela, h.sequencia AS sequencia
@@ -79,7 +86,8 @@ GROUP BY h.produto, h.sequencia ORDER BY h.produto`
             <div class="min-w-0 flex-1">
               <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ i.descricao }}</p>
               <p class="meta tabular-nums mt-0.5">Cód. {{ i.produto }}, {{ i.quant }} × R$ {{ formatReal(i.vlunit) }}</p>
-              <p v-if="Number(i.vldescto) > 0" class="text-xs text-brand-600 font-medium mt-0.5 tabular-nums">Desconto R$ {{ formatReal(i.vldescto) }}</p>
+              <p v-if="Number(i.vldescto) > 0" class="text-xs text-brand-600 font-medium mt-0.5 tabular-nums">Desconto {{ formatReal(i.vldescto) }}%</p>
+              <p v-if="condicoes(i)" class="meta mt-0.5">{{ condicoes(i) }}</p>
             </div>
             <p class="text-[15px] font-semibold tabular-nums shrink-0">R$ {{ formatReal(i.vltotal) }}</p>
           </li>

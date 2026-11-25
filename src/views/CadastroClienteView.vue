@@ -55,6 +55,7 @@ const form = reactive({
   regiao: '',
   obs: '',
 })
+const inativo = ref(false)
 
 const regioes = ref<{ regiao: string; descricao: string }[]>([])
 const cidades = computed(() => estados.find((e) => e.sigla === form.estado)?.cidades ?? [])
@@ -92,6 +93,7 @@ onMounted(async () => {
     const v = row[k]
     if (v != null) form[k] = k === 'cnpj' ? mascararDocumento(String(v).replace(/\D/g, '').slice(0, 14)) : String(v)
   }
+  inativo.value = row.inativo === 'S'
   form.obs = row.obs == null ? '' : String(row.obs)
   form.cidade = removechar(String(row.cidade ?? '')).toUpperCase()
 })
@@ -278,7 +280,7 @@ async function salvar() {
           </div>
           <div>
             <span class="label">Inativo</span>
-            <div class="input flex items-center text-ink-500 bg-ink-50">Não</div>
+            <div class="input flex items-center text-ink-500 bg-ink-50">{{ inativo ? 'Sim' : 'Não' }}</div>
           </div>
         </div>
         <label class="block">

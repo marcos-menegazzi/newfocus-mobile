@@ -13,18 +13,19 @@ import Segmented from '../components/Segmented.vue'
 import Sheet from '../components/Sheet.vue'
 import { query } from '../db/connection'
 import { mudadata } from '../lib/format'
-import { formatPeriodo, hojeISO, primeiroDiaMesISO } from '../lib/periodo'
+import { formatPeriodo, hojeISO, PRESETS_AGENDA, restoDaSemana } from '../lib/periodo'
 import {
+  avisosCliente,
   checkIn,
-  listarAgenda,
+  incluirVisita,
+  listarCompromissos,
   listarMotivos,
-  listarVisitas,
-  novaRecorrencia,
-  novaVisita,
+  situacaoVisita,
   temTitulos,
   type AgendaItem,
   type Motivo,
 } from '../services/agenda'
+import { useConfirm } from '../composables/useConfirm'
 import { useToast } from '../composables/useToast'
 import { useFilters } from '../composables/useFilters'
 
@@ -33,7 +34,8 @@ interface ClienteRow {
   fantasia: string
 }
 
-const DEFAULTS = { dtInicial: primeiroDiaMesISO(), dtFinal: hojeISO(), clifor: null as number | null, clienteNome: '' }
+const [INICIO, FIM] = restoDaSemana()
+const DEFAULTS = { dtInicial: INICIO, dtFinal: FIM, clifor: null as number | null, clienteNome: '' }
 const { filtros, draft, show: showFiltros, abrir: abrirFiltros, aplicar: aplicarFiltros, limpar: limparFiltros } =
   useFilters(DEFAULTS, () => buscar())
 
@@ -42,6 +44,7 @@ const loading = ref(false)
 const searched = ref(false)
 const motivos = ref<Motivo[]>([])
 const { notify } = useToast()
+const { avisar } = useConfirm()
 
 const chips = computed<Chip[]>(() => {
   const c: Chip[] = [{ key: 'periodo', label: formatPeriodo(filtros.dtInicial, filtros.dtFinal), removable: false }]
@@ -68,11 +71,7 @@ onMounted(async () => {
 async function buscar() {
   loading.value = true
   try {
-    const v = await listarVisitas(filtros.dtInicial, filtros.dtFinal, filtros.clifor ?? undefined)
-    const a = await listarAgenda(filtros.clifor ?? undefined)
-    lista.value = [...v, ...a].sort(
-      (x, y) => x.data_agenda.localeCompare(y.data_agenda) || (x.hora || '').localeCompare(y.hora || ''),
-    )
+    lista.value = await listarCompromissos(filtros.dtInicial, filtros.dtFinal, filtros.clifor ?? undefined)
     searched.value = true
   } catch (e) {
     notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
@@ -101,15 +100,12 @@ const grupos = computed(() => {
   return out
 })
 
-function statusLabel(item: AgendaItem): string {
-  if (item.origem === 'agenda') return 'Agendado'
-  return item.atendido === 'S' ? 'Visitado' : 'Não visitado'
+const STATUS = {
+  agendada: { label: 'Agendado', cls: 'bg-info-100 text-info-800', linha: '' },
+  visitada: { label: 'Visitado', cls: 'bg-success-50 text-success-800', linha: 'bg-success-50/60' },
+  'nao-visitada': { label: 'Não visitado', cls: 'bg-danger-100 text-danger-700', linha: 'bg-danger-100/50' },
 }
-
-function statusCls(item: AgendaItem): string {
-  if (item.origem === 'agenda') return 'bg-info-100 text-info-800'
-  return item.atendido === 'S' ? 'bg-success-50 text-success-800' : 'bg-ink-100 text-ink-700'
-}
+const status = (item: AgendaItem) => STATUS[situacaoVisita(item)]
 
 const atd = ref(false)
 const atdItem = ref<AgendaItem | null>(null)
@@ -129,6 +125,7 @@ async function abrirAtendimento(item: AgendaItem) {
 
 async function confirmarAtendimento() {
   if (!atdItem.value) return
+  if (!atdForm.codmotivo) return notify('Informe o Motivo.')
   atdSaving.value = true
   try {
     await checkIn(atdItem.value, {
@@ -146,60 +143,35 @@ async function confirmarAtendimento() {
   }
 }
 
-const agenda = ref(false)
-const agendaForm = reactive({ clifor: 0, clienteNome: '', data: '', hora: '', dias: 7, dia: 1 })
-
-function abrirAgenda() {
-  agendaForm.clifor = 0
-  agendaForm.clienteNome = ''
-  agendaForm.data = hojeISO()
-  agendaForm.hora = ''
-  agendaForm.dias = 7
-  agendaForm.dia = 1
-  agenda.value = true
-}
-
-async function salvarAgenda() {
-  if (!agendaForm.clifor) return notify('Selecione o cliente')
-  try {
-    await novaRecorrencia(agendaForm.clifor, agendaForm.data, agendaForm.dia, agendaForm.hora, agendaForm.dias)
-    agenda.value = false
-    notify('Agenda criada', 'success')
-    await buscar()
-  } catch (e) {
-    notify(e instanceof Error ? e.message : 'Erro ao salvar agenda', 'error')
-  }
-}
-
 const visita = ref(false)
-const nvForm = reactive({ clifor: 0, clienteNome: '', data: '', hora: '' })
+const visitaSaving = ref(false)
+const nvForm = reactive({ clifor: 0, clienteNome: '', data: '', hora: '', dias: 0 })
 
 function abrirVisita() {
-  nvForm.clifor = 0
-  nvForm.clienteNome = ''
-  nvForm.data = hojeISO()
-  nvForm.hora = ''
+  Object.assign(nvForm, { clifor: 0, clienteNome: '', data: hojeISO(), hora: '', dias: 0 })
   visita.value = true
 }
 
 async function salvarVisita() {
-  if (!nvForm.clifor) return notify('Selecione o cliente')
+  visitaSaving.value = true
   try {
-    await novaVisita(nvForm.clifor, nvForm.data, nvForm.hora, nvForm.data)
+    await incluirVisita({ clifor: nvForm.clifor, data: nvForm.data, hora: nvForm.hora, dias: nvForm.dias })
     visita.value = false
-    notify('Visita criada', 'success')
+    notify('Visita incluída', 'success')
     await buscar()
   } catch (e) {
     notify(e instanceof Error ? e.message : 'Erro ao salvar visita', 'error')
+  } finally {
+    visitaSaving.value = false
   }
 }
 
 const picker = ref(false)
-const pickerTarget = ref<'filtro' | 'agenda' | 'visita'>('filtro')
+const pickerTarget = ref<'filtro' | 'visita'>('filtro')
 const pickerBusca = ref('')
 const clientes = ref<ClienteRow[]>([])
 
-async function abrirPicker(target: 'filtro' | 'agenda' | 'visita') {
+async function abrirPicker(target: 'filtro' | 'visita') {
   pickerTarget.value = target
   pickerBusca.value = ''
   picker.value = true
@@ -219,22 +191,21 @@ async function buscarClientes() {
   }
 }
 
-function escolherCliente(c: ClienteRow) {
+async function escolherCliente(c: ClienteRow) {
+  picker.value = false
   if (pickerTarget.value === 'filtro') {
     draft.clifor = c.codigo
     draft.clienteNome = c.fantasia
-  } else if (pickerTarget.value === 'agenda') {
-    agendaForm.clifor = c.codigo
-    agendaForm.clienteNome = c.fantasia
-  } else {
-    nvForm.clifor = c.codigo
-    nvForm.clienteNome = c.fantasia
+    return
   }
-  picker.value = false
+  nvForm.clifor = c.codigo
+  nvForm.clienteNome = c.fantasia
+  const avisos = await avisosCliente(c.codigo)
+  if (avisos.length) await avisar({ title: c.fantasia, message: avisos.join('\n\n') })
 }
 
 const PERIODOS = [
-  { value: 0, label: 'Sem repetição' },
+  { value: 0, label: 'Não repetir' },
   { value: 7, label: 'Semanal (7 dias)' },
   { value: 15, label: 'Quinzenal (15 dias)' },
   { value: 20, label: 'A cada 20 dias' },
@@ -250,26 +221,21 @@ const PERIODOS = [
     </template>
 
     <div class="page">
-      <div class="grid grid-cols-2 gap-2">
-        <button class="btn btn-primary" @click="abrirVisita">
-          <Icon name="plus" :size="18" /> Nova visita
-        </button>
-        <button class="btn btn-secondary" @click="abrirAgenda">
-          <Icon name="calendar" :size="18" /> Nova agenda
-        </button>
-      </div>
+      <button class="btn btn-primary w-full" @click="abrirVisita">
+        <Icon name="plus" :size="18" /> Incluir visita
+      </button>
       <FilterChips :items="chips" @remove="removerFiltro" @open="abrirFiltros" />
 
       <LoadingState v-if="loading && !searched" />
       <div v-else-if="searched && lista.length === 0" class="panel">
-        <EmptyState icon="calendar" label="Nenhum compromisso no período" hint="Crie uma visita ou agenda recorrente." />
+        <EmptyState icon="calendar" label="Nenhum compromisso no período" hint="Inclua uma visita ou escolha outro período." />
       </div>
       <div v-else class="space-y-4" :class="{ 'opacity-60': loading }">
         <section v-for="g in grupos" :key="g.data">
           <h2 class="text-sm font-semibold text-ink-700 px-1 mb-2">{{ dayLabel(g.data) }}</h2>
           <ul class="list">
             <li v-for="{ item, i } in g.itens" :key="`${item.origem}-${item.idagenda ?? item.clifor}-${item.data_agenda}-${i}`">
-              <button class="list-row flex items-start gap-3" @click="abrirAtendimento(item)">
+              <button class="list-row flex items-start gap-3" :class="status(item).linha" @click="abrirAtendimento(item)">
                 <span class="w-12 shrink-0 pt-0.5 text-[15px] font-semibold tabular-nums" :class="item.hora ? 'text-ink-900' : 'text-ink-400'">
                   {{ item.hora || '--:--' }}
                 </span>
@@ -280,8 +246,8 @@ const PERIODOS = [
                     <span class="line-clamp-2">{{ [item.endereco, item.cidade].filter(Boolean).join(', ') }}</span>
                   </span>
                 </span>
-                <span class="inline-flex shrink-0 items-center rounded-full px-2.5 h-6 text-xs font-semibold" :class="statusCls(item)">
-                  {{ statusLabel(item) }}
+                <span class="inline-flex shrink-0 items-center rounded-full px-2.5 h-6 text-xs font-semibold" :class="status(item).cls">
+                  {{ status(item).label }}
                 </span>
               </button>
             </li>
@@ -292,7 +258,7 @@ const PERIODOS = [
 
     <Sheet :open="showFiltros" title="Filtrar agenda" @close="showFiltros = false">
       <div class="space-y-5">
-        <PeriodField v-model:ini="draft.dtInicial" v-model:fim="draft.dtFinal" />
+        <PeriodField v-model:ini="draft.dtInicial" v-model:fim="draft.dtFinal" :presets="PRESETS_AGENDA" />
         <div>
           <span class="label">Cliente</span>
           <div class="flex gap-2">
@@ -350,42 +316,7 @@ const PERIODOS = [
       </template>
     </Sheet>
 
-    <Sheet :open="agenda" title="Nova agenda" subtitle="Visitas recorrentes para um cliente" @close="agenda = false">
-      <div class="space-y-4">
-        <div>
-          <span class="label">Cliente</span>
-          <button type="button" class="input text-left flex items-center justify-between gap-2" @click="abrirPicker('agenda')">
-            <span class="truncate" :class="agendaForm.clienteNome ? '' : 'text-ink-400'">{{ agendaForm.clienteNome || 'Selecionar cliente' }}</span>
-            <Icon name="chevron-right" class="text-ink-400" />
-          </button>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="block">
-            <span class="label">Primeira visita</span>
-            <input v-model="agendaForm.data" type="date" class="input" />
-          </label>
-          <label class="block">
-            <span class="label">Hora</span>
-            <input v-model="agendaForm.hora" type="time" class="input" />
-          </label>
-        </div>
-        <div class="grid grid-cols-[1fr_7rem] gap-3">
-          <label class="block">
-            <span class="label">Repetir</span>
-            <SelectField v-model="agendaForm.dias" :options="PERIODOS" title="Repetir visita" />
-          </label>
-          <label class="block">
-            <span class="label">Nº de visitas</span>
-            <input v-model.number="agendaForm.dia" type="number" inputmode="numeric" min="1" class="input" />
-          </label>
-        </div>
-      </div>
-      <template #footer>
-        <button class="btn btn-primary w-full" @click="salvarAgenda">Criar agenda</button>
-      </template>
-    </Sheet>
-
-    <Sheet :open="visita" title="Nova visita" @close="visita = false">
+    <Sheet :open="visita" title="Incluir visita" @close="visita = false">
       <div class="space-y-4">
         <div>
           <span class="label">Cliente</span>
@@ -404,9 +335,13 @@ const PERIODOS = [
             <input v-model="nvForm.hora" type="time" class="input" />
           </label>
         </div>
+        <label class="block">
+          <span class="label">Repetir</span>
+          <SelectField v-model="nvForm.dias" :options="PERIODOS" title="Repetir visita" />
+        </label>
       </div>
       <template #footer>
-        <button class="btn btn-primary w-full" @click="salvarVisita">Criar visita</button>
+        <button class="btn btn-primary w-full" :disabled="visitaSaving" @click="salvarVisita">Incluir visita</button>
       </template>
     </Sheet>
 

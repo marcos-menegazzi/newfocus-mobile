@@ -8,15 +8,24 @@ import { syncTitulos } from './titulos'
 import { syncHistorico } from './historico'
 import { pullAgenda, pushVisitas } from './agenda'
 
-type Step = { label: string; fn: () => Promise<void> }
+export type GrupoSync = 'clientes' | 'produtos' | 'pedidos' | 'titulos' | 'historico' | 'agenda'
+export type OpcoesSync = Record<GrupoSync, boolean>
 
-export async function sincronizar(): Promise<void> {
+export const SYNC_TUDO: OpcoesSync = {
+  clientes: true, produtos: true, pedidos: true, titulos: true, historico: true, agenda: true,
+}
+
+// Sem `quando`, o passo roda sempre.
+type Step = { label: string; fn: () => Promise<void>; quando?: GrupoSync[] }
+
+/** Cadastros básicos e status dos pedidos são sempre sincronizados; o resto conforme `opcoes`. */
+export async function sincronizar(opcoes: OpcoesSync = SYNC_TUDO): Promise<void> {
   const store = useSyncStore()
   store.running = true
   store.error = null
   store.setProgress(0, 'Iniciando')
 
-  const steps: Step[] = [
+  const todos: Step[] = [
     { label: 'Validando sincronização', fn: validaSync },
     { label: 'Operações', fn: syncOperacao },
     { label: 'Condições de pagamento', fn: syncCondicao },
@@ -27,20 +36,21 @@ export async function sincronizar(): Promise<void> {
     { label: 'Histórico de agenda', fn: syncHistoricoAgenda },
     { label: 'Regiões', fn: syncRegiao },
     { label: 'Vendedores', fn: syncVendedores },
-    { label: 'Clientes (envio)', fn: pushClientes },
-    { label: 'Clientes (download)', fn: pullClientes },
-    { label: 'Produtos', fn: syncProdutos },
-    { label: 'Estoque', fn: syncEstoque },
-    { label: 'Tabelas de preço', fn: syncTabelaPreco },
-    { label: 'Grupos', fn: syncGrupos },
-    { label: 'Pedidos (envio)', fn: pushPedidos },
-    { label: 'Títulos', fn: syncTitulos },
-    { label: 'Histórico de vendas', fn: syncHistorico },
-    { label: 'Visitas (envio)', fn: pushVisitas },
-    { label: 'Agenda (download)', fn: pullAgenda },
+    { label: 'Clientes (envio)', fn: pushClientes, quando: ['clientes', 'pedidos'] },
+    { label: 'Clientes (download)', fn: pullClientes, quando: ['clientes', 'pedidos'] },
+    { label: 'Produtos', fn: syncProdutos, quando: ['produtos'] },
+    { label: 'Estoque', fn: syncEstoque, quando: ['produtos'] },
+    { label: 'Tabelas de preço', fn: syncTabelaPreco, quando: ['produtos'] },
+    { label: 'Grupos', fn: syncGrupos, quando: ['produtos'] },
+    { label: 'Pedidos (envio)', fn: () => pushPedidos(), quando: ['pedidos'] },
+    { label: 'Títulos', fn: syncTitulos, quando: ['titulos'] },
+    { label: 'Histórico de vendas', fn: syncHistorico, quando: ['historico'] },
+    { label: 'Visitas (envio)', fn: pushVisitas, quando: ['agenda'] },
+    { label: 'Agenda (download)', fn: pullAgenda, quando: ['agenda'] },
     { label: 'Status dos pedidos', fn: pullPedidoStatus },
     { label: 'Finalizando', fn: finalizeSync },
   ]
+  const steps = todos.filter((s) => !s.quando || s.quando.some((g) => opcoes[g]))
 
   try {
     for (let i = 0; i < steps.length; i++) {

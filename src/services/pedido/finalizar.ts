@@ -1,5 +1,4 @@
 import { query, run } from '../../db/connection'
-import { isCondAvista } from './calc'
 import { salvarCabecalho } from './pedido'
 
 export interface FinalizarOpts {
@@ -7,45 +6,6 @@ export interface FinalizarOpts {
   empresa: string | number
   local: string | number
   nfe?: string
-}
-
-export async function vencidosCliente(
-  clifor: string | number,
-  data: string,
-  bloqemp: string,
-  empresa: string | number,
-  _ndias: number,
-): Promise<any | null> {
-  const empresaFilter = bloqemp === 'S' ? ' AND empresa = ?' : ''
-  const params = bloqemp === 'S' ? [clifor, data, empresa] : [clifor, data]
-  const rows = await query<any>(
-    `SELECT * FROM titulos WHERE clifor = ? AND vencimento <= ?${empresaFilter} ORDER BY vencimento LIMIT 1`,
-    params,
-  )
-  return rows[0] ?? null
-}
-
-export function validarVencidos(
-  row: any,
-  data: string,
-  cbloqueia: string,
-  cLibera: string,
-  condicoes: { codigo: number; avista: string }[],
-  condicao: string | number,
-  tipopedido: string,
-  ndias: number,
-): string | null {
-  if (
-    row &&
-    row.vencimento < data &&
-    cbloqueia === 'S' &&
-    cLibera === 'S' &&
-    !isCondAvista(condicoes, condicao) &&
-    tipopedido !== 'E'
-  ) {
-    return `Cliente possui Títulos Vencidos a mais de: ${ndias} dias`
-  }
-  return null
 }
 
 export async function testarEstoque(

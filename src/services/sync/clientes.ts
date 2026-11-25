@@ -1,5 +1,5 @@
 import { call } from './context'
-import { childText, rowChildren, removechar, tag, trocachar } from './helpers'
+import { childText, linhas, removechar, tag, trocachar } from './helpers'
 import { clearTables, pullPaged } from './pull'
 import { run, query } from '../../db/connection'
 import { useAuthStore } from '../../stores/auth'
@@ -28,7 +28,7 @@ export async function pushClientes(): Promise<void> {
   const rows = await query<any>('SELECT * FROM clifor WHERE enviado IS NULL OR enviado <> ?', ['S'])
   if (rows.length === 0) return
   const doc = await call(`P_CLIWEB:EXEC("${lic()}","${user()}", "${clientesPayload(rows)}")`)
-  for (const r of rowChildren(doc, 'clientes')) {
+  for (const r of linhas(doc, 'clientes', 'cnpj')) {
     await run('UPDATE clifor SET codigo = ?, enviado = ? WHERE cnpj = ?', [
       childText(r, 'codigo'), 'S', childText(r, 'cnpj'),
     ])
@@ -39,7 +39,7 @@ export async function pullClientes(): Promise<void> {
   await clearTables(['clifor', 'tabela_cliente', 'condicao_cliente', 'cobranca_cliente', 'sucata_cliente'])
   await pullPaged(300, async (offset) => {
     const doc = await call(`P_CWEB:EXEC("${lic()}","${user()}", "${versao()}", 300, ${offset})`)
-    const rows = rowChildren(doc, 'clientes')
+    const rows = linhas(doc, 'clientes', 'codigo')
     if (rows.length === 0) return false
     for (const r of rows) {
       const codigo = childText(r, 'codigo')

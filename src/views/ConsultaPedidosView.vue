@@ -14,9 +14,7 @@ import StatusChip from '../components/StatusChip.vue'
 import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
 import { danfeEmitida, motivoBoleto, motivoNfe } from '../services/pedido/acoes'
-import { emitirNfe, emitirBoleto, reenviarPedido } from '../services/sync/fiscal'
-import { openPdf, pasta } from '../services/files'
-import { useAuthStore } from '../stores/auth'
+import { abrirDanfe, emitirNfe, emitirBoleto, reenviarPedido } from '../services/sync/fiscal'
 import { useToast } from '../composables/useToast'
 import { useFilters } from '../composables/useFilters'
 
@@ -46,6 +44,7 @@ const BASE = 'SELECT p.*, c.fantasia, (SELECT COUNT(*) FROM mped m WHERE m.numpe
 
 interface PedidoRow {
   numpedido: string
+  clifor: number
   data: string
   total: number
   fantasia: string
@@ -56,7 +55,6 @@ interface PedidoRow {
   itens: number
 }
 
-const auth = useAuthStore()
 const router = useRouter()
 const { notify } = useToast()
 
@@ -126,12 +124,10 @@ function abrirPedido(p: PedidoRow) {
 async function nfe(p: PedidoRow) {
   try {
     if (danfeEmitida(p)) {
-      const u = auth.usuario
-      if (!u || !p.file) return
-      await openPdf(`https://${u.server}/${pasta()}/danfe/li${u.codlic}/${p.file}`)
+      if (!(await abrirDanfe(p.file))) notify('Pedido emitido com sucesso', 'success')
       return
     }
-    await emitirNfe(p.numpedido, p.lancto)
+    if (!(await emitirNfe(p.numpedido, p.lancto))) notify('Pedido emitido com sucesso', 'success')
     buscar()
   } catch (e) {
     notify(e instanceof Error ? e.message : 'Não foi possível gerar a NF-e', 'error')
@@ -149,10 +145,27 @@ async function boleto(p: PedidoRow) {
 async function reenviar(p: PedidoRow) {
   try {
     await reenviarPedido(p.numpedido)
-    notify('Pedido reenviado', 'success')
-    buscar()
+    notify(`Pedido ${p.numpedido} pronto para ser reenviado`, 'success')
+    await buscar()
   } catch (e) {
     notify(e instanceof Error ? e.message : 'Não foi possível reenviar o pedido', 'error')
+  }
+}
+
+// Reenvio em lote: só pedidos aguardando confirmação podem ser marcados.
+const marcados = ref<string[]>([])
+const reenviaveis = computed(() => pedidos.value.filter((p) => p.status === 'V' && marcados.value.includes(p.numpedido)))
+
+async function reenviarMarcados() {
+  try {
+    const lote = reenviaveis.value
+    for (const p of lote) await reenviarPedido(p.numpedido)
+    marcados.value = []
+    notify(`${lote.length} ${lote.length === 1 ? 'pedido pronto' : 'pedidos prontos'} para reenvio`, 'success')
+  } catch (e) {
+    notify(e instanceof Error ? e.message : 'Não foi possível reenviar os pedidos', 'error')
+  } finally {
+    await buscar()
   }
 }
 </script>
@@ -186,7 +199,7 @@ async function reenviar(p: PedidoRow) {
         <li v-for="p in pedidos" :key="p.numpedido" class="px-4 py-3.5">
           <button class="w-full text-left flex items-start justify-between gap-3" @click="abrirPedido(p)">
             <div class="min-w-0">
-              <p class="text-[15px] font-semibold truncate">{{ p.fantasia || 'Cliente não informado' }}</p>
+              <p class="text-[15px] font-semibold truncate">{{ p.fantasia ? `${p.clifor} - ${p.fantasia}` : 'Cliente não informado' }}</p>
               <p class="meta tabular-nums mt-0.5">Nº {{ p.numpedido }}, {{ mudadata(p.data) }}</p>
             </div>
             <div class="flex flex-col items-end gap-1 shrink-0">
@@ -194,7 +207,7 @@ async function reenviar(p: PedidoRow) {
               <StatusChip :status="p.status" :itens="p.itens" />
             </div>
           </button>
-          <div v-if="p.status !== 'C' && p.itens > 0" class="flex gap-2 mt-3">
+          <div v-if="p.status !== 'C' && p.itens > 0" class="flex flex-wrap items-center gap-2 mt-3">
             <button class="btn btn-tonal btn-sm" :disabled="!!motivoNfe(p)" :title="motivoNfe(p) ?? undefined" @click="nfe(p)">
               <Icon name="file" :size="16" /> {{ danfeEmitida(p) ? 'DANFE' : 'NF-e' }}
             </button>
@@ -204,10 +217,20 @@ async function reenviar(p: PedidoRow) {
             <button v-if="p.status === 'V'" class="btn btn-tonal btn-sm" @click="reenviar(p)">
               <Icon name="send" :size="16" /> Reenviar
             </button>
+            <label v-if="p.status === 'V'" class="ml-auto flex items-center gap-2 text-sm text-ink-700">
+              <input v-model="marcados" type="checkbox" :value="p.numpedido" class="h-5 w-5 accent-brand-600" :aria-label="`Marcar pedido ${p.numpedido} para reenvio`" />
+              Marcar
+            </label>
           </div>
         </li>
       </ul>
     </div>
+
+    <template v-if="reenviaveis.length" #footer>
+      <button class="btn btn-primary w-full" @click="reenviarMarcados">
+        <Icon name="send" :size="18" /> Reenviar {{ reenviaveis.length }} {{ reenviaveis.length === 1 ? 'marcado' : 'marcados' }}
+      </button>
+    </template>
 
     <Sheet :open="showFiltros" title="Filtrar pedidos" @close="showFiltros = false">
       <div class="space-y-5">

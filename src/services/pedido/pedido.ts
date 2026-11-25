@@ -64,8 +64,10 @@ export async function salvarCabecalho(args: CabecalhoInput): Promise<string> {
   const valorFrete = Number(args.valor_frete) || 0
   const total = await totalPedido(args.numpedido)
 
-  if (valorFrete < 0 || valorFrete > 999999999999.99) throw new Error('valor_frete inválido')
-  if (valorFrete > total) throw new Error('valor_frete maior que o total do pedido')
+  if (valorFrete < 0 || valorFrete > 999999999999.99) throw new Error('Informe um valor de frete válido.')
+  if (valorFrete > 0 && Math.round(valorFrete * 100) >= Math.round(total * 100)) {
+    throw new Error('O frete embutido deve ser menor que o total do pedido.')
+  }
 
   if (!args.numpedido) {
     const numpedido = pad(await novoNumeroPedido(), 10)
@@ -95,7 +97,7 @@ export async function salvarCabecalho(args: CabecalhoInput): Promise<string> {
 
 export async function carregarPedido(numpedido: string): Promise<any | null> {
   const rows = await query<any>(
-    'SELECT p.*, c.inativo FROM ped p, condicao c WHERE p.condpag = c.codigo AND p.numpedido = ?',
+    'SELECT p.*, c.inativo FROM ped p LEFT JOIN condicao c ON p.condpag = c.codigo WHERE p.numpedido = ?',
     [numpedido],
   )
   return rows[0] ?? null
@@ -162,4 +164,15 @@ export async function orcamentoToPedido(numpedido: string): Promise<void> {
 
 export async function reenviarPedido(numpedido: string): Promise<void> {
   await run("UPDATE ped SET status = 'F' WHERE numpedido = ?", [numpedido])
+}
+
+/**
+ * Usuários com `sincprod` precisam sincronizar os produtos antes de cada digitação:
+ * a sincronização libera (`prodsinc = 'S'`) e abrir um pedido consome a liberação.
+ */
+export async function exigirProdutosSincronizados({ consumir = true } = {}): Promise<void> {
+  const [u] = await query<{ sincprod: string; prodsinc: string }>('SELECT sincprod, prodsinc FROM usuario')
+  if (u?.sincprod !== 'S') return
+  if (u.prodsinc !== 'S') throw new Error('Necessário sincronizar produtos antes da digitação do pedido.')
+  if (consumir) await run("UPDATE usuario SET prodsinc = 'N'")
 }

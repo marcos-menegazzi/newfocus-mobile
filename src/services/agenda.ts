@@ -1,5 +1,6 @@
 import { Geolocation } from '@capacitor/geolocation'
 import { query, run } from '../db/connection'
+import { hojeISO, isoDate } from '../lib/periodo'
 
 export interface Motivo {
   codigo: string
@@ -12,34 +13,26 @@ export interface AgendaItem {
   data_agenda: string
   data: string | null
   hora: string
-  atendido: string
-  codmotivo: string
-  motivo: string
+  atendido: string | null
+  codmotivo: string | null
+  motivo: string | null
   fantasia: string
   endereco: string
   cidade: string
   origem: 'visita' | 'agenda'
 }
 
-function toIso(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
-
-export function expandRecorrencia(
-  dataBase: string,
-  dia: number | string,
-  dias: number | string,
-): string[] {
-  const n = parseInt(String(dia), 10) || 0
-  const step = parseInt(String(dias), 10) || 0
-  if (!dataBase || n <= 0) return []
-  const start = new Date(`${dataBase.slice(0, 10)}T00:00:00`)
+/** Datas da agenda dentro do período. `dias` é o intervalo de repetição; 0 = visita única. */
+export function expandRecorrencia(dataBase: string, dias: number | string, ini: string, fim: string): string[] {
+  const base = (dataBase ?? '').slice(0, 10)
+  if (!base) return []
+  const step = Math.trunc(Number(dias)) || 0
+  if (step <= 0) return base >= ini && base <= fim ? [base] : []
   const out: string[] = []
-  for (let i = 0; i < n; i++) {
-    const d = new Date(start)
-    d.setDate(d.getDate() + i * step)
-    out.push(toIso(d))
+  const d = new Date(`${base}T00:00:00`)
+  for (let iso = base; iso <= fim; iso = isoDate(d)) {
+    if (iso >= ini) out.push(iso)
+    d.setDate(d.getDate() + step)
   }
   return out
 }
@@ -48,83 +41,76 @@ export async function listarMotivos(): Promise<Motivo[]> {
   return query<Motivo>("SELECT * FROM historico_agenda WHERE inativo = 'N' ORDER BY descricao")
 }
 
-const VISITAS_SQL = `SELECT v.clifor, v.data_agenda, v.data, v.atendido, v.codmotivo, v.motivo, v.hora, c.fantasia, c.endereco, v.idvisita AS idagenda, c.cidade FROM visitas v INNER JOIN clifor c ON v.clifor = c.codigo WHERE v.data_agenda BETWEEN ? AND ?`
-
-export async function listarVisitas(
-  dtInicial: string,
-  dtFinal: string,
-  clifor?: number,
-): Promise<AgendaItem[]> {
-  let sql = VISITAS_SQL
-  const params: unknown[] = [dtInicial, dtFinal]
-  if (clifor) {
-    sql += ' AND v.clifor = ?'
-    params.push(clifor)
-  }
-  sql += ' ORDER BY v.data_agenda, v.hora'
-  const rows = await query<any>(sql, params)
-  return rows.map((r) => ({
-    idagenda: r.idagenda,
-    clifor: r.clifor,
-    data_agenda: r.data_agenda,
-    data: r.data,
-    hora: r.hora,
-    atendido: r.atendido,
-    codmotivo: r.codmotivo,
-    motivo: r.motivo,
-    fantasia: r.fantasia,
-    endereco: r.endereco,
-    cidade: r.cidade,
-    origem: 'visita',
-  }))
+async function listarVisitas(ini: string, fim: string, clifor?: number): Promise<AgendaItem[]> {
+  const rows = await query<Omit<AgendaItem, 'origem'>>(
+    `SELECT v.clifor, v.data_agenda, v.data, v.atendido, v.codmotivo, v.motivo, v.hora, c.fantasia, c.endereco, v.idvisita AS idagenda, c.cidade
+     FROM visitas v INNER JOIN clifor c ON v.clifor = c.codigo
+     WHERE v.data_agenda BETWEEN ? AND ?${clifor ? ' AND v.clifor = ?' : ''}`,
+    clifor ? [ini, fim, clifor] : [ini, fim],
+  )
+  return rows.map((r) => ({ ...r, origem: 'visita' }))
 }
 
-const AGENDA_SQL = `SELECT a.data_base, a.clifor, a.dia, a.hora, a.dias, c.fantasia, c.endereco, a.idagenda, c.cidade FROM agenda a, clifor c WHERE a.clifor = c.codigo`
+async function listarAgenda(ini: string, fim: string, clifor?: number): Promise<AgendaItem[]> {
+  const rows = await query<any>(
+    `SELECT a.data_base, a.clifor, a.hora, a.dias, c.fantasia, c.endereco, a.idagenda, c.cidade
+     FROM agenda a, clifor c WHERE a.clifor = c.codigo${clifor ? ' AND a.clifor = ?' : ''}
+     GROUP BY a.clifor, a.data_base ORDER BY a.clifor`,
+    clifor ? [clifor] : [],
+  )
+  return rows.flatMap((r) =>
+    expandRecorrencia(r.data_base, r.dias, ini, fim).map((data): AgendaItem => ({
+      idagenda: r.idagenda, clifor: r.clifor, data_agenda: data, data: null, hora: r.hora,
+      atendido: null, codmotivo: null, motivo: null,
+      fantasia: r.fantasia, endereco: r.endereco, cidade: r.cidade, origem: 'agenda',
+    })),
+  )
+}
 
-export async function listarAgenda(clifor?: number): Promise<AgendaItem[]> {
-  let sql = AGENDA_SQL
-  const params: unknown[] = []
-  if (clifor) {
-    sql += ' AND a.clifor = ?'
-    params.push(clifor)
-  }
-  sql += ' GROUP BY a.clifor, a.data_base ORDER BY a.clifor'
-  const rows = await query<any>(sql, params)
-  const out: AgendaItem[] = []
-  for (const r of rows) {
-    for (const data of expandRecorrencia(r.data_base, r.dia, r.dias)) {
-      out.push({
-        idagenda: r.idagenda,
-        clifor: r.clifor,
-        data_agenda: data,
-        data: null,
-        hora: r.hora,
-        atendido: '',
-        codmotivo: '',
-        motivo: '',
-        fantasia: r.fantasia,
-        endereco: r.endereco,
-        cidade: r.cidade,
-        origem: 'agenda',
-      })
-    }
-  }
-  return out
+/** Visitas e agendamentos do período; um por cliente e dia (a visita registrada prevalece). */
+export async function listarCompromissos(ini: string, fim: string, clifor?: number): Promise<AgendaItem[]> {
+  const vistos = new Set<string>()
+  const todos = [...await listarVisitas(ini, fim, clifor), ...await listarAgenda(ini, fim, clifor)]
+  return todos
+    .filter((x) => {
+      const chave = `${x.clifor}|${x.data_agenda}`
+      return !vistos.has(chave) && !!vistos.add(chave)
+    })
+    .sort((x, y) => x.data_agenda.localeCompare(y.data_agenda) || (x.hora || '').localeCompare(y.hora || ''))
+}
+
+export function situacaoVisita(item: { atendido: string | null }): 'agendada' | 'visitada' | 'nao-visitada' {
+  if (item.atendido === 'S') return 'visitada'
+  return item.atendido === 'N' ? 'nao-visitada' : 'agendada'
+}
+
+/** O que o vendedor precisa saber ao escolher o cliente. */
+export async function avisosCliente(clifor: number): Promise<string[]> {
+  const avisos: string[] = []
+  if (await temTitulos(clifor)) avisos.push('Cliente possui títulos em aberto.')
+  const [c] = await query<{ obs: string | null }>('SELECT obs FROM clifor WHERE codigo = ?', [clifor])
+  if (c?.obs?.trim()) avisos.push(c.obs.trim())
+  return avisos
 }
 
 export async function temTitulos(clifor: number): Promise<boolean> {
-  const rows = await query('SELECT * FROM titulos WHERE clifor = ?', [clifor])
+  const rows = await query('SELECT 1 FROM titulos WHERE clifor = ? LIMIT 1', [clifor])
   return rows.length > 0
 }
 
+// Sem GPS ou sem permissão a visita é registrada mesmo assim, com 0,0.
 async function posicao(): Promise<{ latitude: number; longitude: number }> {
-  let pos
   try {
-    pos = await Geolocation.getCurrentPosition()
+    const { coords } = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 5000, maximumAge: 3000 })
+    return { latitude: coords.latitude, longitude: coords.longitude }
   } catch {
-    throw new Error('Não foi possível obter a localização. Verifique se o GPS está ligado e se o app tem permissão de localização.')
+    return { latitude: 0, longitude: 0 }
   }
-  return { latitude: pos.coords.latitude, longitude: pos.coords.longitude }
+}
+
+async function visitaExiste(clifor: number, dataAgenda: string): Promise<boolean> {
+  const rows = await query('SELECT 1 FROM visitas WHERE clifor = ? AND data_agenda = ? LIMIT 1', [clifor, dataAgenda])
+  return rows.length > 0
 }
 
 export interface CheckInInput {
@@ -133,10 +119,14 @@ export interface CheckInInput {
   motivo: string
 }
 
-export async function checkIn(item: AgendaItem, input: CheckInInput): Promise<void> {
+export async function checkIn(
+  item: Pick<AgendaItem, 'clifor' | 'data_agenda' | 'hora'>,
+  input: CheckInInput,
+): Promise<void> {
+  if (!input.codmotivo) throw new Error('Informe o Motivo.')
   const { latitude, longitude } = await posicao()
-  const hoje = new Date().toISOString().slice(0, 10)
-  if (item.origem === 'visita') {
+  const hoje = hojeISO()
+  if (await visitaExiste(item.clifor, item.data_agenda)) {
     await run(
       "UPDATE visitas SET atendido=?, motivo=?, codmotivo=?, latitude=?, longitude=?, data=?, sincronizada='N' WHERE clifor=? AND data_agenda=?",
       [input.atendido, input.motivo, input.codmotivo, latitude, longitude, hoje, item.clifor, item.data_agenda],
@@ -149,27 +139,23 @@ export async function checkIn(item: AgendaItem, input: CheckInInput): Promise<vo
   }
 }
 
-export async function novaVisita(
-  clifor: number,
-  data: string,
-  hora: string,
-  dataAgenda: string,
-): Promise<void> {
-  const { latitude, longitude } = await posicao()
-  await run(
-    'INSERT INTO visitas (clifor, data, hora, data_agenda, latitude, longitude) VALUES (?,?,?,?,?,?)',
-    [clifor, data, hora, dataAgenda, latitude, longitude],
-  )
+export interface NovaVisita {
+  clifor: number
+  data: string
+  hora: string
+  /** Intervalo de repetição em dias; 0 = não repetir. */
+  dias: number
 }
 
-export async function novaRecorrencia(
-  clifor: number,
-  dataBase: string,
-  dia: number,
-  hora: string,
-  dias: number,
-): Promise<void> {
+export async function incluirVisita({ clifor, data, hora, dias }: NovaVisita): Promise<void> {
+  if (!clifor || !data || !hora) throw new Error('Informe Cliente/Data/Hora da Visita.')
+  if (await visitaExiste(clifor, data)) throw new Error('Já existe visita deste cliente para a data informada.')
+  const diaSemana = new Date(`${data}T00:00:00`).getDay() + 1
+  await run(
+    'INSERT INTO visitas (clifor, data, hora, data_agenda, latitude, longitude) VALUES (?,?,?,?,0,0)',
+    [clifor, data, hora, data],
+  )
   await run("INSERT INTO agenda(clifor, data_base, dia, hora, dias, snvis) VALUES (?,?,?,?,?,'N')", [
-    clifor, dataBase, String(dia), hora, dias,
+    clifor, data, String(diaSemana), hora, dias,
   ])
 }

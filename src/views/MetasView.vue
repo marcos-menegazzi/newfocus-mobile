@@ -15,7 +15,7 @@ import { formatReal } from '../lib/format'
 import { formatPeriodo, hojeISO, primeiroDiaMesISO } from '../lib/periodo'
 import { call } from '../services/sync/context'
 import { childText, rowChildren } from '../services/sync/helpers'
-import { text } from '../services/soap'
+import { comandoMetas, linhasMetas, type MetaRow } from '../services/metas'
 import { useAuthStore } from '../stores/auth'
 import { useToast } from '../composables/useToast'
 import { useFilters } from '../composables/useFilters'
@@ -23,16 +23,6 @@ import { useFilters } from '../composables/useFilters'
 interface Opt {
   codigo: string
   descricao: string
-}
-
-interface MetaRow {
-  label: string
-  quantidade: string
-  total: string
-  meta: string
-  falta: string
-  percmeta: string
-  percfalta: string
 }
 
 const auth = useAuthStore()
@@ -64,11 +54,6 @@ const activeCount = computed(() =>
   chips.value.length - 1 + (filtros.dtInicial !== DEFAULTS.dtInicial || filtros.dtFinal !== DEFAULTS.dtFinal ? 1 : 0),
 )
 
-function toBr(d: string): string {
-  const [y, m, day] = d.split('-')
-  return `${day}/${m}/${y}`
-}
-
 function num(v: string): number {
   const s = String(v ?? '').trim()
   const n = parseFloat(s.includes(',') && !s.includes('.') ? s.replace(',', '.') : s)
@@ -96,16 +81,6 @@ function labelPlural(t: string): string {
     case 'produto': return 'produtos'
     case 'grupo_marca': return 'combinações de grupo e marca'
     default: return 'vendedores'
-  }
-}
-
-function labelFor(t: string, el: Element): string {
-  switch (t) {
-    case 'grupo': return childText(el, 'grupo')
-    case 'marca': return childText(el, 'marca')
-    case 'produto': return childText(el, 'produto')
-    case 'grupo_marca': return `${childText(el, 'grupo')} ${childText(el, 'marca')}`.trim()
-    default: return childText(el, 'vendedor')
   }
 }
 
@@ -163,21 +138,9 @@ async function buscar() {
   failed.value = false
   expanded.value = null
   try {
-    const doc = await call(
-      `P_RMTWEB01:EXEC(${u.codlic}, '${toBr(filtros.dtInicial)}', '${toBr(filtros.dtFinal)}', '${filtros.grupo}', '${filtros.marca}', '${filtros.faturamento}')`,
-    )
-    tipo.value = text(doc, 'tipo')
-    rows.value = rowChildren(doc, 'retorno')
-      .filter((el) => el.getElementsByTagName('quantidade').length > 0)
-      .map((el) => ({
-        label: labelFor(tipo.value, el),
-        quantidade: childText(el, 'quantidade'),
-        total: childText(el, 'total'),
-        meta: childText(el, 'meta'),
-        falta: childText(el, 'falta'),
-        percmeta: childText(el, 'percmeta'),
-        percfalta: childText(el, 'percfalta'),
-      }))
+    const r = linhasMetas(await call(comandoMetas(u.codlic, filtros)))
+    tipo.value = r.tipo
+    rows.value = r.rows
     searched.value = true
   } catch (e) {
     failed.value = true

@@ -7,6 +7,7 @@ const { state, responder } = useConfirm()
 const titleId = useId()
 const messageId = useId()
 const cancelBtn = ref<HTMLButtonElement | null>(null)
+const okBtn = ref<HTMLButtonElement | null>(null)
 let lastFocus: Element | null = null
 
 function onKey(e: KeyboardEvent) {
@@ -22,7 +23,7 @@ watch(
       document.body.style.overflow = 'hidden'
       await nextTick()
       // Foco em "Cancelar": confirmar uma ação exige um toque deliberado.
-      cancelBtn.value?.focus()
+      ;(cancelBtn.value ?? okBtn.value)?.focus()
     } else {
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = ''
@@ -45,12 +46,13 @@ watch(
           :aria-describedby="state.message ? messageId : undefined"
         >
           <h2 :id="titleId" class="text-lg font-semibold leading-snug">{{ state.title }}</h2>
-          <p v-if="state.message" :id="messageId" class="mt-1.5 text-[15px] text-ink-500 leading-relaxed">{{ state.message }}</p>
-          <div class="mt-5 grid grid-cols-2 gap-2">
-            <button ref="cancelBtn" type="button" class="btn btn-secondary" @click="responder(false)">
+          <p v-if="state.message" :id="messageId" class="mt-1.5 text-[15px] text-ink-500 leading-relaxed whitespace-pre-line max-h-[50vh] overflow-y-auto">{{ state.message }}</p>
+          <div class="mt-5 grid gap-2" :class="state.aviso ? '' : 'grid-cols-2'">
+            <button v-if="!state.aviso" ref="cancelBtn" type="button" class="btn btn-secondary" @click="responder(false)">
               {{ state.cancelLabel ?? 'Cancelar' }}
             </button>
             <button
+              ref="okBtn"
               type="button"
               class="btn"
               :class="state.danger ? 'bg-danger-600 text-white active:bg-danger-700' : 'btn-primary'"

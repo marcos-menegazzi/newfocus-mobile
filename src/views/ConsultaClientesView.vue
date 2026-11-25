@@ -8,26 +8,19 @@ import LoadingState from '../components/LoadingState.vue'
 import FilterButton from '../components/FilterButton.vue'
 import FilterChips, { type Chip } from '../components/FilterChips.vue'
 import Icon from '../components/Icon.vue'
+import PositivadoChip from '../components/PositivadoChip.vue'
 import SelectField from '../components/SelectField.vue'
 import SearchField from '../components/SearchField.vue'
 import Segmented from '../components/Segmented.vue'
 import Sheet from '../components/Sheet.vue'
-import { query } from '../db/connection'
+import { buscarClientes, type ClienteRow } from '../services/clientes'
+import { periodoMes } from '../lib/periodo'
 import { call } from '../services/sync/context'
-import { childText, rowChildren } from '../services/sync/helpers'
+import { childText, linhas } from '../services/sync/helpers'
 import { text } from '../services/soap'
 import { openPdf, pdfUrl } from '../services/files'
 import { useAuthStore } from '../stores/auth'
 import { useToast } from '../composables/useToast'
-
-const COLUMNS: Record<string, string> = {
-  fantasia: 'c.fantasia',
-  razao: 'c.razao',
-  codigo: 'c.codigo',
-  cnpj: 'c.cnpj',
-  cidade: 'c.cidade',
-  estado: 'c.estado',
-}
 
 const COL_OPTIONS = [
   { value: 'fantasia', label: 'Nome fantasia' },
@@ -44,18 +37,6 @@ const POSITIVADO_OPTIONS = [
   { value: 'nao', label: 'Não positivados' },
 ]
 
-const BASE = `SELECT c.*, (SELECT COUNT(*) FROM HISTVENDA H INNER JOIN HISTITENS I ON H.LANCTO = I.LANCTO WHERE H.DATA BETWEEN ? AND ? AND I.FATURAMENTO = 'S' AND H.CLIFOR = c.CODIGO) AS positivado FROM clifor c`
-
-interface ClienteRow {
-  clifor: number
-  codigo: number
-  fantasia: string
-  tel1: string
-  cidade: string
-  estado: string
-  positivado: number
-}
-
 interface GarantiaRow {
   codigo: string
   produto: string
@@ -69,7 +50,7 @@ interface GarantiaRow {
 const auth = useAuthStore()
 const { notify } = useToast()
 
-const DEFAULTS = { col: 'fantasia', positivado: 'todos' }
+const DEFAULTS = { col: 'fantasia', positivado: 'todos', titulos: false }
 const { filtros, draft, show: showFiltros, abrir: abrirFiltros, aplicar: aplicarFiltros, limpar: limparFiltros, remover: removerFiltro } =
   useFilters(DEFAULTS, () => buscar())
 
@@ -87,33 +68,14 @@ const chips = computed<Chip[]>(() => {
   if (filtros.positivado !== DEFAULTS.positivado) {
     c.push({ key: 'positivado', label: POSITIVADO_OPTIONS.find((o) => o.value === filtros.positivado)!.label })
   }
+  if (filtros.titulos) c.push({ key: 'titulos', label: 'Com títulos em aberto' })
   return c
 })
-
-function monthBounds(): [string, string] {
-  const now = new Date()
-  const mm = String(now.getMonth() + 1).padStart(2, '0')
-  const dd = String(now.getDate()).padStart(2, '0')
-  return [`${now.getFullYear()}-${mm}-01`, `${now.getFullYear()}-${mm}-${dd}`]
-}
 
 async function buscar() {
   loading.value = true
   try {
-    const [start, end] = monthBounds()
-    let sql = BASE
-    const params: unknown[] = [start, end]
-    const term = search.value.trim()
-    if (term) {
-      sql += ` WHERE ${COLUMNS[filtros.col]} LIKE ?`
-      params.push(`%${term}%`)
-    }
-    if (filtros.positivado === 'positivados') {
-      sql = `SELECT * FROM (${sql}) q WHERE q.positivado > 0`
-    } else if (filtros.positivado === 'nao') {
-      sql = `SELECT * FROM (${sql}) q WHERE q.positivado = 0`
-    }
-    clientes.value = await query<ClienteRow>(sql, params)
+    clientes.value = await buscarClientes({ ...filtros, termo: search.value, periodo: periodoMes() })
     searched.value = true
   } catch (e) {
     notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
@@ -122,11 +84,19 @@ async function buscar() {
   }
 }
 
+// Buscando por razão social, é ela que identifica a linha.
+const nomeCliente = (c: ClienteRow) => (filtros.col === 'razao' ? c.razao : c.fantasia) || c.fantasia || c.razao
+const telefone = (c: ClienteRow) => (c.tel1 ? `${c.ddd ? `(${c.ddd}) ` : ''}${c.tel1}` : '')
+const endereco = (c: ClienteRow) => [c.endereco, c.numero].filter(Boolean).join(', ')
+
 onMounted(buscar)
+
+const extratoDe = ref<number | null>(null)
 
 async function extrato(c: ClienteRow) {
   const u = auth.usuario
-  if (!u) return
+  if (!u || extratoDe.value !== null) return
+  extratoDe.value = c.clifor
   try {
     const doc = await call(`P_EXTWEB:EXEC("${c.codigo}","${u.codlic}")`)
     if (text(doc, 'status') !== 'Ok') {
@@ -137,19 +107,21 @@ async function extrato(c: ClienteRow) {
     await openPdf(pdfUrl(`relatorio/li${u.codlic}/${arquivo}`))
   } catch (e) {
     notify(e instanceof Error ? e.message : 'Não foi possível gerar o extrato.', 'error')
+  } finally {
+    extratoDe.value = null
   }
 }
 
 const garantias = ref(false)
 const gClient = ref<ClienteRow | null>(null)
-const g = reactive({ dtInicial: '', dtFinal: '', disposicao: '', resolvido: '' })
+const g = reactive({ dtInicial: '', dtFinal: '', disposicao: '', resolvido: 'N' })
 const gRows = ref<GarantiaRow[]>([])
 const gLoading = ref(false)
 const gSearched = ref(false)
 
 function abrirGarantias(c: ClienteRow) {
   gClient.value = c
-  Object.assign(g, { dtInicial: '', dtFinal: '', disposicao: '', resolvido: '' })
+  Object.assign(g, { dtInicial: '', dtFinal: '', disposicao: '', resolvido: 'N' })
   gRows.value = []
   gSearched.value = false
   garantias.value = true
@@ -163,7 +135,7 @@ async function buscarGarantias() {
     const doc = await call(
       `P_GTWEB:EXEC(${c.codigo}, '${g.dtInicial}', '${g.dtFinal}', '${g.disposicao}', '${g.resolvido}')`,
     )
-    gRows.value = rowChildren(doc, 'retorno').map((el) => ({
+    gRows.value = linhas(doc, 'retorno', 'codigo').map((el) => ({
       codigo: childText(el, 'codigo'),
       produto: childText(el, 'produto'),
       nota: childText(el, 'nota'),
@@ -201,28 +173,38 @@ async function buscarGarantias() {
         <EmptyState icon="users" label="Nenhum cliente encontrado" hint="Tente outro termo ou ajuste os filtros." />
       </div>
       <ul v-else class="list" :class="{ 'opacity-60': loading }">
-        <li v-for="c in clientes" :key="c.codigo" class="px-4 pt-3.5 pb-3">
+        <li
+          v-for="c in clientes"
+          :key="c.clifor"
+          class="px-4 pt-3.5 pb-3"
+          :class="c.titulos > 0 ? 'bg-sun-100/70 border-l-4 border-l-sun-400' : ''"
+          :data-titulos="c.titulos > 0 ? '' : undefined"
+        >
           <RouterLink :to="`/clientes/${c.clifor}`" class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <p class="text-[15px] font-semibold truncate">{{ c.fantasia }}</p>
+              <p class="text-[15px] font-semibold truncate">{{ nomeCliente(c) }}</p>
+              <p v-if="endereco(c)" class="meta truncate mt-0.5">{{ endereco(c) }}</p>
               <p class="meta truncate mt-0.5">{{ c.cidade }}{{ c.estado ? ` / ${c.estado}` : '' }}</p>
-              <p v-if="c.tel1" class="meta truncate flex items-center gap-1.5 mt-0.5">
-                <Icon name="phone" :size="14" /> {{ c.tel1 }}
+              <p v-if="telefone(c)" class="meta truncate flex items-center gap-1.5 mt-0.5">
+                <Icon name="phone" :size="14" /> {{ telefone(c) }}
               </p>
             </div>
-            <span
-              v-if="c.positivado > 0"
-              class="inline-flex shrink-0 items-center gap-1 rounded-full bg-success-50 text-success-800 pl-1.5 pr-2.5 h-6 text-xs font-semibold"
-            >
-              <Icon name="check" :size="14" :stroke="2.4" /> Positivado
+            <span class="flex shrink-0 flex-col items-end gap-1.5">
+              <span
+                v-if="c.titulos > 0"
+                class="inline-flex items-center gap-1 rounded-full bg-sun-400/25 text-sun-800 pl-1.5 pr-2.5 h-6 text-xs font-semibold"
+              >
+                <Icon name="alert" :size="14" :stroke="2.2" /> {{ c.titulos }} {{ c.titulos === 1 ? 'título em aberto' : 'títulos em aberto' }}
+              </span>
+              <PositivadoChip :positivado="c.positivado > 0" />
             </span>
           </RouterLink>
           <div class="flex gap-2 mt-3">
             <RouterLink :to="{ path: `/titulos/${c.codigo}`, query: { fantasia: c.fantasia } }" class="btn btn-tonal btn-sm">
               <Icon name="receipt" :size="16" /> Títulos
             </RouterLink>
-            <button class="btn btn-tonal btn-sm" @click="extrato(c)">
-              <Icon name="file" :size="16" /> Extrato
+            <button class="btn btn-tonal btn-sm" :disabled="extratoDe !== null" @click="extrato(c)">
+              <Icon name="file" :size="16" /> {{ extratoDe === c.clifor ? 'Gerando…' : 'Extrato' }}
             </button>
             <button class="btn btn-tonal btn-sm" @click="abrirGarantias(c)">
               <Icon name="shield" :size="16" /> Garantias
@@ -242,6 +224,10 @@ async function buscarGarantias() {
           <span class="label">Positivação no mês</span>
           <Segmented v-model="draft.positivado" :options="POSITIVADO_OPTIONS" label="Positivação no mês" />
         </div>
+        <label class="flex items-center justify-between gap-4 rounded-xl border border-ink-200 px-4 py-3.5">
+          <span class="text-[15px] font-medium">Só com títulos em aberto</span>
+          <input v-model="draft.titulos" type="checkbox" class="switch" />
+        </label>
       </div>
       <template #footer>
         <div class="flex gap-2">
@@ -265,18 +251,19 @@ async function buscarGarantias() {
           <span class="label">Disposição</span>
           <input v-model="g.disposicao" type="text" class="input" />
         </label>
-        <label class="block">
+        <div>
           <span class="label">Resolvido</span>
-          <input v-model="g.resolvido" type="text" class="input" />
-        </label>
+          <Segmented v-model="g.resolvido" :options="[{ value: 'N', label: 'Não' }, { value: 'S', label: 'Sim' }]" label="Resolvido" />
+        </div>
       </div>
       <button class="btn btn-primary w-full mt-4" :disabled="gLoading" @click="buscarGarantias">
         {{ gLoading ? 'Buscando…' : 'Buscar garantias' }}
       </button>
 
       <LoadingState v-if="gLoading" />
-      <EmptyState v-else-if="gSearched && gRows.length === 0" icon="shield" label="Nenhuma garantia no período" />
-      <ul v-else-if="gRows.length" class="mt-5 space-y-3">
+      <EmptyState v-else-if="gSearched && gRows.length === 0" icon="shield" label="Nenhuma garantia para os filtros" />
+      <p v-else-if="gRows.length" class="mt-5 text-sm font-semibold">{{ gRows.length }} {{ gRows.length === 1 ? 'garantia' : 'garantias' }}</p>
+      <ul v-if="!gLoading && gRows.length" class="mt-3 space-y-3">
         <li v-for="(r, i) in gRows" :key="i" class="rounded-xl border border-ink-200 p-4">
           <div class="flex items-start justify-between gap-3">
             <p class="text-[15px] font-semibold">{{ r.produto }}</p>
@@ -285,8 +272,8 @@ async function buscarGarantias() {
           <dl class="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
             <div><dt class="meta">Nota</dt><dd>{{ r.nota || '—' }}</dd></div>
             <div><dt class="meta">Disposição</dt><dd>{{ r.disposicao || '—' }}</dd></div>
-            <div><dt class="meta">Defeito na entrada</dt><dd>{{ r.defeito_in || '—' }}</dd></div>
-            <div><dt class="meta">Defeito na saída</dt><dd>{{ r.defeito_ex || '—' }}</dd></div>
+            <div><dt class="meta">Defeito procedente</dt><dd>{{ r.defeito_in || '—' }}</dd></div>
+            <div><dt class="meta">Defeito improcedente</dt><dd>{{ r.defeito_ex || '—' }}</dd></div>
             <div v-if="r.obs" class="col-span-2"><dt class="meta">Observação</dt><dd>{{ r.obs }}</dd></div>
           </dl>
         </li>

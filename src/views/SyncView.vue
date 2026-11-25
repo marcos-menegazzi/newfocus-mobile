@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import Icon from '../components/Icon.vue'
+import Sheet from '../components/Sheet.vue'
 import Meter from '../components/Meter.vue'
 import { query } from '../db/connection'
-import { sincronizar } from '../services/sync'
+import { sincronizar, SYNC_TUDO, type GrupoSync } from '../services/sync'
+import { pendenciasRestauracao, restaurar } from '../services/restaurar'
 import { useSyncStore } from '../stores/sync'
 import { useAuthStore } from '../stores/auth'
 import { useLastSync } from '../composables/useLastSync'
@@ -14,6 +17,17 @@ const store = useSyncStore()
 const auth = useAuthStore()
 const { lastSync } = useLastSync()
 const { notify } = useToast()
+const router = useRouter()
+
+const GRUPOS: { key: GrupoSync; label: string; icon: string }[] = [
+  { key: 'clientes', label: 'Clientes', icon: 'users' },
+  { key: 'produtos', label: 'Produtos, preços e estoque', icon: 'package' },
+  { key: 'pedidos', label: 'Pedidos', icon: 'orders' },
+  { key: 'titulos', label: 'Títulos', icon: 'receipt' },
+  { key: 'historico', label: 'Histórico de vendas', icon: 'chart' },
+  { key: 'agenda', label: 'Agenda de visitas', icon: 'calendar' },
+]
+const opcoes = reactive({ ...SYNC_TUDO })
 
 const pedidos = ref(0)
 const clientes = ref(0)
@@ -23,7 +37,7 @@ const done = ref(false)
 async function contarPendencias() {
   const [[p], [c], [v]] = await Promise.all([
     query<{ total: number }>("SELECT COUNT(*) AS total FROM ped WHERE status = 'F'"),
-    query<{ total: number }>("SELECT COUNT(*) AS total FROM clifor WHERE enviado = 'N'"),
+    query<{ total: number }>("SELECT COUNT(*) AS total FROM clifor WHERE enviado IS NULL OR enviado <> 'S'"),
     query<{ total: number }>("SELECT COUNT(*) AS total FROM visitas WHERE sincronizada = 'N' OR sincronizada IS NULL"),
   ])
   pedidos.value = p?.total ?? 0
@@ -39,7 +53,7 @@ onMounted(() => {
 async function iniciar() {
   done.value = false
   try {
-    await sincronizar()
+    await sincronizar({ ...opcoes })
     done.value = true
     notify('Sincronização concluída', 'success')
   } catch {
@@ -47,6 +61,34 @@ async function iniciar() {
   } finally {
     auth.loadSession().catch(() => {})
     contarPendencias().catch(() => {})
+  }
+}
+
+const showRestaurar = ref(false)
+const senha = ref('')
+const restaurando = ref(false)
+const erroRestaurar = ref('')
+
+async function abrirRestaurar() {
+  const pendencia = await pendenciasRestauracao()
+  if (pendencia) return notify(pendencia, 'error')
+  senha.value = ''
+  erroRestaurar.value = ''
+  showRestaurar.value = true
+}
+
+async function confirmarRestaurar() {
+  restaurando.value = true
+  erroRestaurar.value = ''
+  try {
+    await restaurar(senha.value)
+    showRestaurar.value = false
+    auth.$reset()
+    await router.replace({ name: 'login' })
+  } catch (e) {
+    erroRestaurar.value = e instanceof Error ? e.message : 'Não foi possível restaurar.'
+  } finally {
+    restaurando.value = false
   }
 }
 </script>
@@ -83,6 +125,18 @@ async function iniciar() {
           <span>{{ store.error }}</span>
         </p>
 
+        <fieldset class="mt-5" :disabled="store.running">
+          <legend class="label">O que sincronizar</legend>
+          <div class="divide-y divide-ink-100 rounded-xl border border-ink-200">
+            <label v-for="g in GRUPOS" :key="g.key" class="flex items-center gap-3 px-3.5 py-3 text-[15px]">
+              <Icon :name="g.icon" class="text-ink-500" />
+              <span class="flex-1">{{ g.label }}</span>
+              <input v-model="opcoes[g.key]" type="checkbox" class="switch" />
+            </label>
+          </div>
+          <p class="meta mt-2">Condições, operações, empresas e demais cadastros são sempre atualizados.<template v-if="opcoes.pedidos && !opcoes.clientes"> Enviar pedidos também atualiza os clientes.</template></p>
+        </fieldset>
+
         <button class="btn btn-primary w-full mt-5" :disabled="store.running" @click="iniciar">
           <Icon name="sync" />
           {{ store.running ? 'Sincronizando…' : store.error ? 'Tentar de novo' : 'Sincronizar agora' }}
@@ -106,8 +160,34 @@ async function iniciar() {
             <span class="font-semibold tabular-nums">{{ visitas }}</span>
           </li>
         </ul>
-        <p class="meta px-1 mt-2">A sincronização envia esses registros e baixa clientes, produtos, preços, estoque, títulos e agenda atualizados.</p>
+        <p class="meta px-1 mt-2">A sincronização envia esses registros e baixa os dados marcados acima.</p>
+      </section>
+
+      <section class="panel p-4">
+        <h2 class="section-title">Restaurar o aplicativo</h2>
+        <p class="meta mt-0.5">Apaga todos os dados deste aparelho. Depois será preciso entrar e sincronizar de novo.</p>
+        <button class="btn btn-danger w-full mt-4" :disabled="store.running" @click="abrirRestaurar">
+          <Icon name="trash" :size="18" /> Restaurar
+        </button>
       </section>
     </div>
+
+    <Sheet :open="showRestaurar" title="Restaurar o aplicativo" subtitle="Essa ação não pode ser desfeita" @close="showRestaurar = false">
+      <form id="form-restaurar" @submit.prevent="confirmarRestaurar">
+        <label class="block">
+          <span class="label">Digite sua senha para confirmar</span>
+          <input v-model="senha" type="password" autocomplete="current-password" class="input" required />
+        </label>
+        <p v-if="erroRestaurar" class="mt-2 text-sm text-danger-700" role="alert">{{ erroRestaurar }}</p>
+      </form>
+      <template #footer>
+        <div class="grid grid-cols-2 gap-2">
+          <button type="button" class="btn btn-secondary" @click="showRestaurar = false">Cancelar</button>
+          <button type="submit" form="form-restaurar" class="btn bg-danger-600 text-white active:bg-danger-700" :disabled="restaurando || !senha">
+            {{ restaurando ? 'Restaurando…' : 'Apagar tudo' }}
+          </button>
+        </div>
+      </template>
+    </Sheet>
   </AppShell>
 </template>

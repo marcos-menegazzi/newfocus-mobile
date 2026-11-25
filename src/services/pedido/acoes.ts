@@ -37,7 +37,17 @@ export function motivoNfe(p: PedidoSituacao): string | null {
   return integrado(p) ?? (ENVIADO.includes(p.status) ? null : 'Aguardando confirmação do servidor.')
 }
 
-/** Boleto e termo de responsabilidade. */
+/** Na tela do pedido, aberto ou finalizado: finaliza, envia e emite de uma vez. */
+export function motivoNfePedido(p: PedidoSituacao): string | null {
+  if (p.status !== 'A' && p.status !== 'F') return motivoNfe(p)
+  return comItens(p) ?? (p.tipo === 'O' ? 'Transforme o orçamento em pedido primeiro.' : null)
+}
+
+export function motivoReenviar(p: PedidoSituacao): string | null {
+  return p.status === 'V' ? null : 'Só pedidos aguardando confirmação podem ser reenviados.'
+}
+
+/** Boleto, termo de responsabilidade e impressão do ERP. */
 export const motivoBoleto = integrado
 
 export function motivoImprimir(p: PedidoSituacao): string | null {

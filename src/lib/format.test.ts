@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatReal, mudadata, realDeDigitos } from './format'
+import { formatReal, mudadata, realDeDigitos, textoObservacao } from './format'
 
 describe('formatReal', () => {
   it('formats pt-BR currency without R$', () => {
@@ -36,5 +36,12 @@ describe('realDeDigitos', () => {
   })
   it('limita a quantidade de dígitos', () => {
     expect(realDeDigitos('123456789012345')).toBe(123456789.01)
+  })
+})
+
+describe('textoObservacao', () => {
+  it('quebra linha no ponto e vírgula', () => {
+    expect(textoObservacao('a;b; c')).toBe('a\nb\nc')
+    expect(textoObservacao(null)).toBe('')
   })
 })

@@ -25,6 +25,12 @@ export function parseLogin(doc: Document): LoginResult | null {
   }
 }
 
+/** Motivo da recusa do login devolvido pelo servidor. */
+export function mensagemLogin(doc: Document): string {
+  const result = text(doc, 'result')
+  return text(doc, 'msg') || (result && result !== 'False' ? result : 'usuário ou senha inválidos')
+}
+
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     usuario: null as Usuario | null,
@@ -49,7 +55,7 @@ export const useAuthStore = defineStore('auth', {
       })
 
       const r = parseLogin(doc)
-      if (!r) throw new Error('usuário ou senha inválidos')
+      if (!r) throw new Error(mensagemLogin(doc))
 
       const usuario: Usuario = {
         codlic: parseFloat(input.licenciada),

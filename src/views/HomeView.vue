@@ -9,11 +9,12 @@ import EmptyState from '../components/EmptyState.vue'
 import LoadingState from '../components/LoadingState.vue'
 import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
+import { periodoMes } from '../lib/periodo'
+import { indicadores } from '../services/indicadores'
 import { useLastSync } from '../composables/useLastSync'
 import { useToast } from '../composables/useToast'
 
 interface CountRow { total: number }
-interface VendasRow { total: number; quantidade: number }
 interface PedidoRow {
   idpedido: number
   numpedido: string
@@ -45,33 +46,20 @@ function pct(a: number, b: number): string {
 
 const vendasLabel = computed(() => `${vendasQtd.value} ${vendasQtd.value === 1 ? 'pedido faturado' : 'pedidos faturados'}`)
 
-function monthBounds(): [string, string] {
-  const now = new Date()
-  const mm = String(now.getMonth() + 1).padStart(2, '0')
-  const dd = String(now.getDate()).padStart(2, '0')
-  return [`${now.getFullYear()}-${mm}-01`, `${now.getFullYear()}-${mm}-${dd}`]
-}
-
 onMounted(async () => {
   try {
-    const [start, end] = monthBounds()
-
-    const [[c], [cp], [v], [p], [pp], [pend]] = await Promise.all([
-      query<CountRow>('SELECT COUNT(*) AS total FROM CLIFOR'),
-      query<CountRow>(`SELECT COUNT(DISTINCT(H.CLIFOR)) AS total FROM HISTVENDA H INNER JOIN HISTITENS I ON H.LANCTO = I.LANCTO WHERE H.DATA BETWEEN ? AND ? AND I.FATURAMENTO = 'S'`, [start, end]),
-      query<VendasRow>(`SELECT SUM(X.TOTAL) AS total, COUNT(*) AS quantidade FROM (SELECT H.PEDIDO, SUM(I.VLTOTAL) AS TOTAL FROM HISTVENDA H INNER JOIN HISTITENS I ON H.LANCTO = I.LANCTO WHERE H.DATA BETWEEN ? AND ? AND I.FATURAMENTO = 'S' GROUP BY H.PEDIDO, H.TOTAL) X`, [start, end]),
-      query<CountRow>('SELECT COUNT(DISTINCT(CODIGO)) AS total FROM PRODUTOS'),
-      query<CountRow>(`SELECT COUNT(DISTINCT(I.PRODUTO)) AS total FROM HISTVENDA H INNER JOIN HISTITENS I ON H.LANCTO = I.LANCTO INNER JOIN PRODUTOS P ON P.CODIGO = I.PRODUTO WHERE H.DATA BETWEEN ? AND ? AND I.FATURAMENTO = 'S'`, [start, end]),
+    const [ind, [pend]] = await Promise.all([
+      indicadores(periodoMes()),
       query<CountRow>(`SELECT COUNT(*) AS total FROM ped WHERE status = 'F'`),
     ])
     ultimosPedidos.value = await query<PedidoRow>(`SELECT p.*, c.fantasia, (SELECT COUNT(*) FROM mped m WHERE m.numpedido = p.numpedido) AS itens FROM ped p, clifor c WHERE c.codigo = p.clifor ORDER BY p.idpedido DESC LIMIT 10`)
 
-    totalClientes.value = c?.total ?? 0
-    clientesPositivados.value = cp?.total ?? 0
-    vendasTotal.value = v?.total ?? 0
-    vendasQtd.value = v?.quantidade ?? 0
-    totalProdutos.value = p?.total ?? 0
-    produtosPositivados.value = pp?.total ?? 0
+    totalClientes.value = ind.totalClientes
+    clientesPositivados.value = ind.clientesPositivados
+    vendasTotal.value = ind.vendasTotal
+    vendasQtd.value = ind.vendasQtd
+    totalProdutos.value = ind.totalProdutos
+    produtosPositivados.value = ind.produtosPositivados
     pendencia.value = pend?.total ?? 0
   } catch (e) {
     notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')

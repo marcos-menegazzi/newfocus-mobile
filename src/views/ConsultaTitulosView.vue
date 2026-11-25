@@ -12,6 +12,7 @@ import { titulosAbertos, duplicata, type TituloAberto } from '../services/sync/t
 import { useToast } from '../composables/useToast'
 
 interface TituloRow {
+  idtitulo: number
   numero: string
   empresa: number
   cobranca: string
@@ -50,6 +51,8 @@ onMounted(async () => {
 const abertos = ref(false)
 const abertosRows = ref<TituloAberto[]>([])
 const abertosLoading = ref(false)
+
+const abertosTotal = computed(() => abertosRows.value.reduce((s, t) => s + (Number(t.valor) || 0), 0))
 
 async function abrirAbertos() {
   abertos.value = true
@@ -95,9 +98,9 @@ async function verDuplicata(r: TituloAberto) {
         </section>
 
         <ul class="list">
-          <li v-for="t in titulos" :key="t.numero">
+          <li v-for="t in titulos" :key="t.idtitulo">
             <RouterLink
-              :to="{ path: `/titulo/${t.numero}`, query: { idcliente, fantasia } }"
+              :to="{ name: 'titulo', params: { idtitulo: t.idtitulo } }"
               class="list-row flex items-center gap-3"
             >
               <div class="min-w-0 flex-1">
@@ -118,7 +121,12 @@ async function verDuplicata(r: TituloAberto) {
     <Sheet :open="abertos" title="Títulos em aberto" :subtitle="fantasia || undefined" size="tall" @close="abertos = false">
       <LoadingState v-if="abertosLoading" label="Consultando o servidor…" />
       <EmptyState v-else-if="abertosRows.length === 0" icon="check-circle" label="Nenhum título em aberto" />
-      <ul v-else class="divide-y divide-ink-100 -mx-5">
+      <div v-else>
+      <p class="flex items-baseline justify-between gap-3 pb-3 text-[15px]">
+        <span class="text-ink-500">{{ abertosRows.length }} {{ abertosRows.length === 1 ? 'título' : 'títulos' }}</span>
+        <strong class="font-semibold tabular-nums">Total R$ {{ formatReal(abertosTotal) }}</strong>
+      </p>
+      <ul class="divide-y divide-ink-100 -mx-5 border-t border-ink-100">
         <li v-for="(r, i) in abertosRows" :key="i" class="flex items-center gap-3 px-5 py-3">
           <div class="min-w-0 flex-1">
             <p class="text-[15px] font-medium tabular-nums">Nº {{ r.numero }}</p>
@@ -128,6 +136,7 @@ async function verDuplicata(r: TituloAberto) {
           <button class="btn btn-tonal btn-sm shrink-0" @click="verDuplicata(r)">Duplicata</button>
         </li>
       </ul>
+      </div>
     </Sheet>
   </AppShell>
 </template>

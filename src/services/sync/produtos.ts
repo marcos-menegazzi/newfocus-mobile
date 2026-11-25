@@ -1,5 +1,5 @@
 import { call } from './context'
-import { childText, rowChildren, trocachar } from './helpers'
+import { childText, linhas, trocachar } from './helpers'
 import { clearTables, pullPaged } from './pull'
 import { run } from '../../db/connection'
 import { useAuthStore } from '../../stores/auth'
@@ -11,10 +11,8 @@ export async function syncProdutos(): Promise<void> {
   await clearTables(['produtos', 'fatores'])
   await pullPaged(300, async (offset) => {
     const doc = await call(`P_PRODWEB:EXEC("${lic()}","${user()}", 300, ${offset})`)
-    const rows = rowChildren(doc, 'retorno')
-    // Passado o último produto o servidor devolve `<retorno><result>false</result></retorno>`
-    // em vez de uma lista vazia; como no legado, linha sem código encerra a paginação.
-    if (rows.length === 0 || !childText(rows[0], 'codigo')) return false
+    const rows = linhas(doc, 'retorno', 'codigo')
+    if (rows.length === 0) return false
     for (const r of rows) {
       const codigo = childText(r, 'codigo')
       await run(
@@ -43,7 +41,7 @@ export async function syncEstoque(): Promise<void> {
   await clearTables(['estoque'])
   await pullPaged(300, async (offset) => {
     const doc = await call(`P_EWEB:EXEC("${lic()}","${user()}", 300, ${offset})`)
-    const rows = rowChildren(doc, 'retorno')
+    const rows = linhas(doc, 'retorno', 'produto')
     if (rows.length === 0) return false
     for (const r of rows) {
       await run('INSERT INTO estoque(codigo, empresa, estoque, centralizado, local) VALUES (?,?,?,?,?)', [
@@ -58,7 +56,7 @@ export async function syncEstoque(): Promise<void> {
 export async function syncTabelaPreco(): Promise<void> {
   await clearTables(['tpreco', 'mvtpreco'])
   const doc = await call(`P_TBPWEB:EXEC(${lic()},"${user()}")`)
-  for (const r of rowChildren(doc, 'tabelas')) {
+  for (const r of linhas(doc, 'tabelas', 'codigo')) {
     const codigo = childText(r, 'codigo')
     await run('INSERT INTO tpreco(codigo, descricao, flex, flex_pos, flex_max, flex_min, usa_cliente) VALUES (?,?,?,?,?,?,?)', [
       codigo, childText(r, 'descricao'), childText(r, 'flex'), childText(r, 'flex_pos'),

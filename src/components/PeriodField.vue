@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import Segmented from './Segmented.vue'
 import { PRESETS, presetFor, presetRange, type PresetKey } from '../lib/periodo'
 
+const props = withDefaults(defineProps<{ presets?: { value: PresetKey; label: string }[] }>(), { presets: () => PRESETS })
 const ini = defineModel<string>('ini', { required: true })
 const fim = defineModel<string>('fim', { required: true })
 
@@ -10,7 +11,7 @@ const fim = defineModel<string>('fim', { required: true })
 const custom = ref(false)
 
 const preset = computed<PresetKey>({
-  get: () => (custom.value ? 'custom' : presetFor(ini.value, fim.value)),
+  get: () => (custom.value ? 'custom' : presetFor(ini.value, fim.value, props.presets)),
   set: (k) => {
     const r = presetRange(k)
     custom.value = !r
@@ -22,7 +23,7 @@ const preset = computed<PresetKey>({
 <template>
   <div>
     <span class="label">Período</span>
-    <Segmented v-model="preset" :options="PRESETS" label="Período" />
+    <Segmented v-model="preset" :options="presets" label="Período" />
     <div class="grid grid-cols-2 gap-3 mt-3">
       <label class="block">
         <span class="label">De</span>

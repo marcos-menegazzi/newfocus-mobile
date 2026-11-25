@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseLogin } from './auth'
+import { mensagemLogin, parseLogin } from './auth'
 
 describe('parseLogin', () => {
   it('returns null when result is not True', () => {
@@ -36,5 +36,17 @@ describe('parseLogin', () => {
     expect(r?.libmin).toBe('S')
     expect(r?.altcli).toBe('S')
     expect(r?.obscli).toBe('S')
+  })
+})
+
+describe('mensagemLogin', () => {
+  const msg = (xml: string) => mensagemLogin(new DOMParser().parseFromString(xml, 'text/xml'))
+  it('mostra o motivo devolvido pelo servidor', () => {
+    expect(msg('<retorno><result>Versão desatualizada</result></retorno>')).toBe('Versão desatualizada')
+    expect(msg('<retorno><result>False</result><msg>bloqueado</msg></retorno>')).toBe('bloqueado')
+  })
+  it('sem motivo, assume usuário ou senha', () => {
+    expect(msg('<retorno><result>False</result></retorno>')).toBe('usuário ou senha inválidos')
+    expect(msg('<String/>')).toBe('usuário ou senha inválidos')
   })
 })

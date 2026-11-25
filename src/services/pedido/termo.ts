@@ -1,6 +1,7 @@
 import { call } from '../sync/context'
-import { childText, rowChildren } from '../sync/helpers'
+import { arquivoRetorno, childText, linhas, rowChildren } from '../sync/helpers'
 import { openPdf, pdfUrl } from '../files'
+import { useAuthStore } from '../../stores/auth'
 
 export interface SaldoSucata {
   referencia: string
@@ -15,8 +16,19 @@ export interface SaldoFinanceiro {
 
 export async function termo(lancto: string | number): Promise<void> {
   const doc = await call(`P_TRW001:EXEC(${lancto})`)
-  const file = rowChildren(doc, 'retorno')[1]?.textContent ?? ''
+  const file = arquivoRetorno(doc, 'Não localizado termo de responsabilidade.')
   await openPdf(pdfUrl(`termo/${file}`))
+}
+
+/** Impressão do pedido gerada pelo ERP. */
+export async function imprimirErp(lancto: string | number): Promise<void> {
+  const u = useAuthStore().usuario
+  if (!u) throw new Error('sem usuário logado')
+  const doc = await call(`P_IPWEB:EXEC("${lancto}", "${u.codlic}")`)
+  const retorno = doc.getElementsByTagName('retorno')[0]
+  const arquivo = childText(retorno, 'arquivo')
+  if (childText(retorno, 'status') !== 'Ok' || !arquivo) throw new Error('Erro durante a emissão do relatório.')
+  await openPdf(pdfUrl(`pedido/Licenciada${u.codlic}/${arquivo}`))
 }
 
 export async function saldoSucata(
@@ -24,7 +36,7 @@ export async function saldoSucata(
   cliente: string | number,
 ): Promise<SaldoSucata[]> {
   const doc = await call(`P_SLDRSW:EXEC(${codlic},${cliente})`)
-  return rowChildren(doc, 'retorno').map((r) => ({
+  return linhas(doc, 'retorno', 'referencia').map((r) => ({
     referencia: childText(r, 'referencia'),
     saldo: childText(r, 'saldo'),
   }))
