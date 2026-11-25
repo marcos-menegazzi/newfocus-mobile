@@ -1118,9 +1118,11 @@ const acoes = computed(() => {
 const showSucata = ref(false)
 const sucataRows = ref<SaldoSucata[]>([])
 const sucataLoading = ref(false)
+const sucataErro = ref('')
 const showSaldos = ref(false)
 const saldosRows = ref<SaldoFinanceiro[]>([])
 const saldosLoading = ref(false)
+const saldosErro = ref('')
 
 async function gerarTermo() {
   const lancto = store.cabecalho.lancto
@@ -1144,11 +1146,12 @@ async function abrirSucata() {
   }
   showSucata.value = true
   sucataRows.value = []
+  sucataErro.value = ''
   sucataLoading.value = true
   try {
     sucataRows.value = await saldoSucata(codlic, cli)
   } catch (e) {
-    notify(msg(e), 'error')
+    sucataErro.value = msg(e)
   } finally {
     sucataLoading.value = false
   }
@@ -1162,11 +1165,12 @@ async function abrirSaldos() {
   }
   showSaldos.value = true
   saldosRows.value = []
+  saldosErro.value = ''
   saldosLoading.value = true
   try {
     saldosRows.value = await saldosFinanceiro(cli)
   } catch (e) {
-    notify(msg(e), 'error')
+    saldosErro.value = msg(e)
   } finally {
     saldosLoading.value = false
   }
@@ -1205,9 +1209,10 @@ async function duplicar() {
 }
 
 // Uma folha aberta por cima fecha antes; aqui só chega o Voltar da própria tela.
+// Só o pedido aberto volta por etapas; os demais abrem na revisão, só para consulta.
 useBackButton(async (canGoBack) => {
   if (mudandoEtapa) return
-  if (step.value > 0) {
+  if (aberto.value && step.value > 0) {
     await goTo(step.value - 1)
     return
   }
@@ -1990,6 +1995,9 @@ watch(
 
     <Sheet :open="showSucata" title="Saldo de sucata" :subtitle="cliente.fantasia" @close="showSucata = false">
       <LoadingState v-if="sucataLoading" :rows="3" label="Consultando saldo…" class="-mx-4 rounded-none border-0" />
+      <EmptyState v-else-if="sucataErro" icon="alert" label="Não foi possível consultar o servidor" :hint="sucataErro">
+        <button type="button" class="btn btn-tonal btn-sm" @click="abrirSucata">Tentar de novo</button>
+      </EmptyState>
       <EmptyState v-else-if="sucataRows.length === 0" icon="info" label="Nenhum saldo de sucata" />
       <table v-else class="data-table">
         <thead>
@@ -2009,6 +2017,9 @@ watch(
 
     <Sheet :open="showSaldos" title="Saldos do cliente" :subtitle="cliente.fantasia" @close="showSaldos = false">
       <LoadingState v-if="saldosLoading" :rows="3" label="Consultando saldos…" class="-mx-4 rounded-none border-0" />
+      <EmptyState v-else-if="saldosErro" icon="alert" label="Não foi possível consultar o servidor" :hint="saldosErro">
+        <button type="button" class="btn btn-tonal btn-sm" @click="abrirSaldos">Tentar de novo</button>
+      </EmptyState>
       <EmptyState v-else-if="saldosRows.length === 0" icon="info" label="Nenhum saldo" />
       <table v-else class="data-table">
         <thead>

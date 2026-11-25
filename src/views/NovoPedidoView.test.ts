@@ -60,3 +60,39 @@ it('volta pelas etapas com o botão do Android e sai diretamente pela seta do to
   }
   await vi.waitFor(() => expect(remove).toHaveBeenCalledOnce())
 })
+
+it.each(['F', 'V', 'S', 'Z', 'C'])('pedido %s: o botão do Android volta à tela anterior, em qualquer etapa', async (status) => {
+  router.back.mockClear()
+  let voltarAndroid!: BackButtonListener
+  vi.mocked(App.addListener).mockImplementation(async (_, listener) => {
+    voltarAndroid = listener as BackButtonListener
+    return { remove: vi.fn().mockResolvedValue(undefined) }
+  })
+  vi.mocked(query).mockImplementation(async (sql) => sql.startsWith('SELECT p.*, c.inativo')
+    ? [{ numpedido: '0000000001', etapa: 1, status, tabela: 1 }]
+    : [])
+  const plataforma = vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('android')
+  const rolar = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+  const host = document.createElement('div')
+  const app = createApp(NovoPedidoView).use(createPinia())
+  app.mount(host)
+
+  const etapaAtual = () => host.querySelector('[aria-current="step"]')?.textContent
+  try {
+    await vi.waitFor(() => expect(etapaAtual()).toContain('Revisão'))
+    await voltarAndroid({ canGoBack: true })
+    expect(router.back).toHaveBeenCalledOnce()
+    expect(etapaAtual()).toContain('Revisão')
+
+    const produtos = [...host.querySelectorAll<HTMLButtonElement>('nav button')].find((b) => b.textContent?.includes('Produtos'))!
+    produtos.click()
+    await vi.waitFor(() => expect(etapaAtual()).toContain('Produtos'))
+    await voltarAndroid({ canGoBack: true })
+    expect(router.back).toHaveBeenCalledTimes(2)
+    expect(etapaAtual()).toContain('Produtos')
+  } finally {
+    app.unmount()
+    plataforma.mockRestore()
+    rolar.mockRestore()
+  }
+})

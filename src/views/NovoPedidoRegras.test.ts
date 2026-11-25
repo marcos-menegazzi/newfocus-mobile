@@ -454,12 +454,25 @@ it.each(consultasDeSaldo)('$nome mostra o esqueleto até o servidor responder', 
   expect(painel.querySelector('.skeleton')).toBeNull()
 })
 
-it.each(consultasDeSaldo)('$nome tira o esqueleto quando a consulta falha', async ({ nome }) => {
+it.each(consultasDeSaldo)('$nome avisa que a consulta falhou e permite tentar de novo', async ({ nome, vazio, resposta, linha }) => {
   let falhar!: (e: Error) => void
-  servidor.call.mockReturnValue(new Promise<Document>((_, r) => { falhar = r }))
+  servidor.call.mockReturnValueOnce(new Promise<Document>((_, r) => { falhar = r }))
   const painel = await abrirSaldo(nome)
   expect(painel.querySelector('.skeleton')).toBeTruthy()
 
   falhar(new Error('Sem conexão'))
-  await vi.waitFor(() => expect(painel.querySelector('.skeleton')).toBeNull())
+  await vi.waitFor(() => expect(painel.textContent).toContain('Não foi possível consultar o servidor'))
+  expect(painel.textContent).toContain('Sem conexão')
+  expect(painel.textContent).not.toContain(vazio)
+  expect(painel.querySelector('.skeleton')).toBeNull()
+
+  let concluir!: (doc: Document) => void
+  servidor.call.mockReturnValueOnce(new Promise<Document>((r) => { concluir = r }))
+  botao('Tentar de novo', painel).click()
+  await nextTick()
+  expect(painel.querySelector('.skeleton')).toBeTruthy()
+  expect(painel.textContent).not.toContain('Não foi possível')
+
+  concluir(xml(resposta))
+  await vi.waitFor(() => expect(painel.textContent).toContain(linha))
 })
