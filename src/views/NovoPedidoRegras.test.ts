@@ -240,3 +240,95 @@ it('financeiro obrigatório (finped): sem parcelas cobra distribuição e não f
   await new Promise((r) => setTimeout(r, 30))
   expect(await statusPed()).toBe('A')
 })
+
+async function campo(nome: string) {
+  return vi.waitFor(() => {
+    const el = document.querySelector<HTMLInputElement>(`[data-campo="${nome}"]`)
+    expect(el).toBeTruthy()
+    return el!
+  })
+}
+
+async function digitar(nome: string, texto: string) {
+  const el = await campo(nome)
+  el.value = texto
+  el.dispatchEvent(new Event('input'))
+  await nextTick()
+  return el.value
+}
+
+async function etapaPagamento() {
+  await pedidoNaEtapaProdutos()
+  botao('Adicionar', host).click()
+  await vi.waitFor(() => expect(host.textContent).toContain('Já adicionado'))
+  botao('Continuar para pagamento', host).click()
+  await vi.waitFor(() => expect(botao('Revisar pedido', host)).toBeTruthy())
+}
+
+const interruptor = (texto: string) =>
+  [...host.querySelectorAll('label')].find((l) => l.textContent?.includes(texto))!.querySelector<HTMLInputElement>('input')!
+
+it('a parcela vem com o que falta já em R$ e grava o valor digitado', async () => {
+  await inserir('cobrancas', { codigo: '01', descr: 'Boleto' })
+  await etapaPagamento()
+  await vi.waitFor(async () => expect((await campo('parcela')).value).toBe('R$ 10,00'))
+  expect(await digitar('parcela', '730')).toBe('R$ 7,30')
+  host.querySelector<HTMLButtonElement>('[data-campo="cobranca-parcela"]')!.click()
+  await vi.waitFor(() => expect(botao('Boleto')).toBeTruthy())
+  botao('Boleto').click()
+  host.querySelector<HTMLButtonElement>('[data-campo="condicao-parcela"]')!.click()
+  await vi.waitFor(() => expect(botao('À vista')).toBeTruthy())
+  botao('À vista').click()
+  await nextTick()
+  botao('Adicionar parcela', host).click()
+  await vi.waitFor(async () => expect(await query('SELECT valor FROM financeiro')).toEqual([{ valor: 7.3 }]))
+  await vi.waitFor(async () => expect((await campo('parcela')).value).toBe('R$ 2,70'))
+})
+
+it('desconto do pedido em R$ usa a máscara', async () => {
+  await etapaPagamento()
+  botao('Valor (R$)', host).click()
+  await nextTick()
+  expect(await digitar('desconto-pedido', '150')).toBe('R$ 1,50')
+  botao('Aplicar', host).click()
+  await vi.waitFor(async () => expect(await query('SELECT descto, descper, vltotal FROM mped')).toEqual([{ descto: 1.5, descper: 'N', vltotal: 8.5 }]))
+})
+
+it('desconto do pedido em percentual continua sem máscara', async () => {
+  await etapaPagamento()
+  expect(await digitar('desconto-pedido', '15')).toBe('15')
+  botao('Aplicar', host).click()
+  await vi.waitFor(async () => expect(await query('SELECT descto, descper, vltotal FROM mped')).toEqual([{ descto: 15, descper: 'S', vltotal: 8.5 }]))
+})
+
+it.each([
+  ['Por quilo', 'vlquilo', 'valor_quilo'],
+  ['Por unidade', 'vlunidade', 'valor_unidade'],
+])('acréscimo "%s" usa a máscara', async (rotulo, nome, coluna) => {
+  await etapaPagamento()
+  interruptor(rotulo).click()
+  await nextTick()
+  expect(await digitar(nome, '20')).toBe('R$ 0,20')
+  ;[...host.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Aplicar')[1].click()
+  await vi.waitFor(async () => expect(await query(`SELECT ${coluna} AS valor FROM ped`)).toEqual([{ valor: 0.2 }]))
+})
+
+it('frete embutido usa a máscara', async () => {
+  await etapaPagamento()
+  expect(await digitar('frete', '250')).toBe('R$ 2,50')
+  botao('Revisar pedido', host).click()
+  await vi.waitFor(() => expect(host.textContent).toContain('frete R$ 2,50'))
+  await vi.waitFor(async () => expect(await query('SELECT valor_frete FROM ped')).toEqual([{ valor_frete: 2.5 }]))
+})
+
+it('desconto do item em R$ usa a máscara; em % não', async () => {
+  await pedidoNaEtapaProdutos()
+  host.querySelector<HTMLButtonElement>('[aria-label="Ajustar preço e desconto"]')!.click()
+  expect(await digitar('desconto-item', '150')).toBe('R$ 1,50')
+  const tipo = [...document.querySelectorAll('[role="radio"]')].find((b) => b.textContent === '%') as HTMLButtonElement
+  tipo.click()
+  await nextTick()
+  expect(await digitar('desconto-item', '15')).toBe('15')
+  botao('Salvar item').click()
+  await vi.waitFor(async () => expect(await query('SELECT descto, descper, vltotal FROM mped')).toEqual([{ descto: 15, descper: 'S', vltotal: 8.5 }]))
+})

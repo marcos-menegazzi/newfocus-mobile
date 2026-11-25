@@ -610,7 +610,7 @@ const modal = reactive({
   quantidade: 1,
   unidade: '',
   descinc: 0,
-  desconto: 0,
+  desconto: null as number | null,
   descper: 'N',
   unitario: null as number | null,
 })
@@ -626,7 +626,7 @@ const modalPreview = computed(() =>
     descinc: Number(modal.descinc) || 0,
     quantidade: Number(modal.quantidade) || 0,
     fator: modalFator.value,
-    desconto: modal.desconto,
+    desconto: Number(modal.desconto) || 0,
     descper: modal.descper as 'S' | 'N',
     tabela: modal.tabela,
     tabelas: store.tabelas,
@@ -645,7 +645,7 @@ function abrirModalProduto(p: any) {
   modal.unitario = modal.venda
   modal.unidade = p.unidade ?? ''
   modal.descinc = 0
-  modal.desconto = 0
+  modal.desconto = null
   modal.descper = 'N'
   modal.open = true
 }
@@ -786,7 +786,7 @@ async function removerDesconto() {
 }
 
 // --- Financeiro ---
-const fin = reactive({ cobranca: '', condicao: '' as string | number, valor: '', autorizacao: '' })
+const fin = reactive({ cobranca: '', condicao: '' as string | number, valor: null as number | null, autorizacao: '' })
 const parcelas = ref<any[]>([])
 const remaining = ref(0)
 
@@ -800,7 +800,7 @@ async function refreshParcelas() {
   const r = await listarParcelas(n)
   parcelas.value = r.rows
   remaining.value = r.remaining
-  fin.valor = r.remaining > 0 ? r.remaining.toFixed(2) : ''
+  fin.valor = r.remaining > 0 ? r.remaining : null
 }
 
 async function gravarParcela() {
@@ -825,27 +825,27 @@ async function removerParcela(id: number) {
 }
 
 // --- Negociação ---
-const acrescimo = reactive({ vlquilo: '', vlunidade: '' })
+const acrescimo = reactive({ vlquilo: null as number | null, vlunidade: null as number | null })
 const snquilo = ref(false)
 const snunidade = ref(false)
 // Um ou outro.
 watch(snquilo, (v) => {
   if (v) {
     snunidade.value = false
-    acrescimo.vlunidade = ''
-  } else acrescimo.vlquilo = ''
+    acrescimo.vlunidade = null
+  } else acrescimo.vlquilo = null
 })
 watch(snunidade, (v) => {
   if (v) {
     snquilo.value = false
-    acrescimo.vlquilo = ''
-  } else acrescimo.vlunidade = ''
+    acrescimo.vlquilo = null
+  } else acrescimo.vlunidade = null
 })
 
 function preloadNegociacao() {
   const c = store.cabecalho
-  acrescimo.vlquilo = c.valor_quilo ?? ''
-  acrescimo.vlunidade = c.valor_unidade ?? ''
+  acrescimo.vlquilo = c.valor_quilo ?? null
+  acrescimo.vlunidade = c.valor_unidade ?? null
   snquilo.value = c.snquilo === 'S'
   snunidade.value = c.snunidade === 'S'
 }
@@ -1558,15 +1558,15 @@ watch(
           <div class="grid grid-cols-2 gap-3">
             <label class="block col-span-2">
               <span class="label">Cobrança</span>
-              <SelectField v-model="fin.cobranca" :options="opcoes.cobrancas.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar cobrança" placeholder="Selecione a cobrança" />
+              <SelectField v-model="fin.cobranca" data-campo="cobranca-parcela" :options="opcoes.cobrancas.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar cobrança" placeholder="Selecione a cobrança" />
             </label>
             <label class="block col-span-2">
               <span class="label">Condição</span>
-              <SelectField v-model="fin.condicao" :options="opcoes.condicoes.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar condição" placeholder="Selecione a condição" />
+              <SelectField v-model="fin.condicao" data-campo="condicao-parcela" :options="opcoes.condicoes.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar condição" placeholder="Selecione a condição" />
             </label>
             <label class="block">
               <span class="label">Valor</span>
-              <input v-model="fin.valor" type="number" inputmode="decimal" min="0" step="0.01" class="input" :placeholder="formatReal(remaining)" />
+              <MoneyInput v-model="fin.valor" data-campo="parcela" :placeholder="`R$ ${formatReal(remaining)}`" />
             </label>
             <label class="block">
               <span class="label">Autorização</span>
@@ -1590,7 +1590,8 @@ watch(
           />
           <label class="block">
             <span class="sr-only">{{ descontoModo === 'percent' ? 'Desconto em %' : 'Desconto total em R$' }}</span>
-            <input v-model.number="descontoValor" type="number" inputmode="decimal" min="0" class="input" placeholder="0,00" />
+            <MoneyInput v-if="descontoModo === 'reais'" v-model="descontoValor" data-campo="desconto-pedido" />
+            <input v-else v-model.number="descontoValor" data-campo="desconto-pedido" type="number" inputmode="decimal" min="0" class="input" placeholder="0,00" />
           </label>
           <div class="grid grid-cols-2 gap-2">
             <button class="btn btn-secondary" :disabled="!aberto" @click="removerDesconto">Remover</button>
@@ -1606,7 +1607,7 @@ watch(
           </label>
           <label v-if="snquilo" class="block">
             <span class="label">Valor por quilo (R$)</span>
-            <input v-model="acrescimo.vlquilo" type="number" inputmode="decimal" min="0" step="0.01" class="input" placeholder="0,00" />
+            <MoneyInput v-model="acrescimo.vlquilo" data-campo="vlquilo" />
           </label>
           <label class="flex items-center justify-between gap-3">
             <span class="text-[15px]">Por unidade</span>
@@ -1614,7 +1615,7 @@ watch(
           </label>
           <label v-if="snunidade" class="block">
             <span class="label">Valor por unidade (R$)</span>
-            <input v-model="acrescimo.vlunidade" type="number" inputmode="decimal" min="0" step="0.01" class="input" placeholder="0,00" />
+            <MoneyInput v-model="acrescimo.vlunidade" data-campo="vlunidade" />
           </label>
           <div class="grid grid-cols-2 gap-2">
             <button class="btn btn-secondary" :disabled="!aberto" @click="removerAcrescimo">Remover</button>
@@ -1631,7 +1632,7 @@ watch(
           <div class="grid grid-cols-2 gap-3">
             <label class="block">
               <span class="label">Frete embutido (R$)</span>
-              <input v-model="store.cabecalho.valor_frete" type="number" inputmode="decimal" min="0" step="0.01" class="input" placeholder="0,00" />
+              <MoneyInput v-model="store.cabecalho.valor_frete" data-campo="frete" />
             </label>
             <label class="block">
               <span class="label">Retorno sucata (kg)</span>
@@ -1879,7 +1880,8 @@ watch(
         <div>
           <span class="label">Desconto</span>
           <div class="grid grid-cols-[1fr_9rem] gap-2">
-            <input v-model.number="modal.desconto" type="number" inputmode="decimal" min="0" class="input" aria-label="Valor do desconto" />
+            <MoneyInput v-if="modal.descper !== 'S'" v-model="modal.desconto" data-campo="desconto-item" aria-label="Valor do desconto" />
+            <input v-else v-model.number="modal.desconto" data-campo="desconto-item" type="number" inputmode="decimal" min="0" class="input" aria-label="Valor do desconto" />
             <Segmented
               v-model="modal.descper"
               :options="[{ value: 'N', label: 'R$' }, { value: 'S', label: '%' }]"
