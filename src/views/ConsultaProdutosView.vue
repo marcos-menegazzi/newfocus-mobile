@@ -18,6 +18,7 @@ import { periodoMes } from '../lib/periodo'
 import { buscarProdutos, type ProdutoRow } from '../services/produtos'
 import { useAuthStore } from '../stores/auth'
 import { useToast } from '../composables/useToast'
+import { useAoVoltar } from '../composables/useAoVoltar'
 import { useFilters } from '../composables/useFilters'
 
 const COL_OPTIONS = [
@@ -101,21 +102,19 @@ function resetAndBuscar() {
   buscar()
 }
 
-function prev() {
-  if (page.value === 0) return
-  page.value--
-  buscar()
-}
-
-function next() {
-  page.value++
-  buscar()
+async function irPara(p: number) {
+  if (p < 0) return
+  page.value = p
+  await buscar()
+  // A página nova começa a ser lida do topo.
+  window.scrollTo({ top: 0 })
 }
 
 onMounted(() => {
   loadEmpresas()
   buscar()
 })
+useAoVoltar(buscar)
 </script>
 
 <template>
@@ -130,7 +129,7 @@ onMounted(() => {
         <FilterChips :items="chips" @remove="removerFiltro" @open="abrirFiltros" />
       </div>
 
-      <LoadingState v-if="loading && !searched" />
+      <LoadingState v-if="loading && !searched" :rows="6" label="Carregando produtos…" />
       <div v-else-if="searched && produtos.length === 0" class="panel">
         <EmptyState icon="package" label="Nenhum produto encontrado" hint="Tente outro termo ou ajuste os filtros." />
       </div>
@@ -139,31 +138,28 @@ onMounted(() => {
           <RouterLink :to="{ name: 'produto', params: { codigo: p.codigo } }" class="list-row flex items-center gap-3">
             <div class="min-w-0 flex-1">
               <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ p.descvis }}</p>
-              <p class="meta mt-1 tabular-nums">
-                Cód. {{ p.codigo }}
-                <span class="mx-1.5 text-ink-200" aria-hidden="true">|</span>
-                <span v-if="!p.estoque" class="font-medium text-danger-700">Sem estoque</span>
-                <span v-else :class="{ 'font-medium text-danger-700': p.estoque < 0 }">Estoque {{ formatNumero(p.estoque) }}</span>
-              </p>
+              <p class="meta mt-1 tabular-nums">Cód. {{ p.codigo }}</p>
+              <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <PositivadoChip :positivado="p.positivado > 0" />
+                <span v-if="!p.estoque" class="text-[13px] font-medium text-danger-700">Sem estoque</span>
+                <span v-else class="text-[13px] tabular-nums" :class="p.estoque < 0 ? 'font-medium text-danger-700' : 'text-ink-700'">Estoque {{ formatNumero(p.estoque) }}</span>
+              </div>
             </div>
-            <div class="flex flex-col items-end gap-1.5 shrink-0">
-              <p class="text-right tabular-nums">
-                <span class="block text-[11px] text-ink-500">Comprado</span>
-                <span class="figure text-[18px]">{{ formatNumero(p.comprado) }}</span>
-              </p>
-              <PositivadoChip :positivado="p.positivado > 0" />
-            </div>
+            <p class="shrink-0 text-right tabular-nums">
+              <span class="block text-xs text-ink-500">Comprado</span>
+              <span class="figure mt-1 block text-[20px]">{{ formatNumero(p.comprado) }}</span>
+            </p>
             <Icon name="chevron-right" class="text-ink-400" />
           </RouterLink>
         </li>
       </ul>
 
       <nav v-if="searched && (page > 0 || produtos.length >= filtros.limit)" class="flex items-center justify-between gap-3" aria-label="Paginação">
-        <button class="btn btn-secondary btn-sm" :disabled="loading || page === 0" @click="prev">
+        <button class="btn btn-secondary btn-sm" :disabled="loading || page === 0" @click="irPara(page - 1)">
           <Icon name="back" :size="16" /> Anterior
         </button>
         <span class="meta tabular-nums">Página {{ page + 1 }}</span>
-        <button class="btn btn-secondary btn-sm" :disabled="loading || produtos.length < filtros.limit" @click="next">
+        <button class="btn btn-secondary btn-sm" :disabled="loading || produtos.length < filtros.limit" @click="irPara(page + 1)">
           Próxima <Icon name="chevron-right" :size="16" />
         </button>
       </nav>

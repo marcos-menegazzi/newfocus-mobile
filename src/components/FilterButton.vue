@@ -7,7 +7,7 @@ defineProps<{ count?: number }>()
 <template>
   <button
     type="button"
-    class="relative btn btn-secondary btn-sm min-h-10 shrink-0"
+    class="btn btn-secondary btn-sm shrink-0 min-w-11"
     :class="count ? 'border-cream' : ''"
     :aria-label="count ? `Filtros, ${count} ativo${count > 1 ? 's' : ''}` : 'Filtros'"
   >

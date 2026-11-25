@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import Segmented from './Segmented.vue'
+import { abrirSeletor } from '../lib/picker'
 import { PRESETS, presetFor, presetRange, type PresetKey } from '../lib/periodo'
 
 const props = withDefaults(defineProps<{ presets?: { value: PresetKey; label: string }[] }>(), { presets: () => PRESETS })
@@ -25,13 +26,13 @@ const preset = computed<PresetKey>({
     <span class="label">Período</span>
     <Segmented v-model="preset" :options="presets" label="Período" />
     <div class="grid grid-cols-2 gap-3 mt-3">
-      <label class="block">
+      <label class="block min-w-0">
         <span class="label">De</span>
-        <input v-model="ini" type="date" class="input" />
+        <input v-model="ini" type="date" class="input input-datetime" @click="abrirSeletor" />
       </label>
-      <label class="block">
+      <label class="block min-w-0">
         <span class="label">Até</span>
-        <input v-model="fim" type="date" class="input" />
+        <input v-model="fim" type="date" class="input input-datetime" :min="ini || undefined" @click="abrirSeletor" />
       </label>
     </div>
   </div>

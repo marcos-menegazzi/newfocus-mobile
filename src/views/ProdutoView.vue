@@ -99,7 +99,7 @@ onMounted(async () => {
 <template>
   <AppShell :title="produto?.descred || produto?.descricao || 'Produto'" back>
     <div class="page">
-      <LoadingState v-if="loading" />
+      <LoadingState v-if="loading" :rows="4" label="Carregando produto…" />
       <div v-else-if="!produto" class="panel">
         <EmptyState icon="package" label="Produto não encontrado" hint="Sincronize para atualizar o catálogo." />
       </div>
@@ -111,6 +111,9 @@ onMounted(async () => {
               :src="imageUrl(link)"
               :alt="produto.descricao"
               class="mx-auto aspect-square w-full max-w-64 object-contain"
+              width="256"
+              height="256"
+              decoding="async"
               @error="imagemFalhou = true"
             />
           </div>
@@ -160,10 +163,10 @@ onMounted(async () => {
                 <table class="data-table">
                   <thead>
                     <tr>
-                      <th class="pl-4">Unidade</th>
-                      <th class="num text-ink-900!">Venda</th>
-                      <th class="num">Mínimo</th>
-                      <th class="num pr-4">Máximo</th>
+                      <th scope="col" class="pl-4">Unidade</th>
+                      <th scope="col" class="num text-ink-900!">Venda</th>
+                      <th scope="col" class="num">Mínimo</th>
+                      <th scope="col" class="num pr-4">Máximo</th>
                     </tr>
                   </thead>
                   <tbody>

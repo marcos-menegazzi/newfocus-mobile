@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { run } from '../db/connection'
 import AppShell from '../components/AppShell.vue'
+import FieldError from '../components/FieldError.vue'
 import { useToast } from '../composables/useToast'
 import { APP_VERSION, buildDateLabel } from '../lib/appInfo'
 
@@ -10,10 +11,15 @@ const auth = useAuthStore()
 const buildDate = buildDateLabel()
 const { notify } = useToast()
 const form = reactive({ server: auth.usuario?.server ?? '' })
+const erro = ref('')
+const alterado = computed(() => form.server.trim().toLowerCase() !== (auth.usuario?.server ?? ''))
 
 async function save() {
   const server = form.server.trim().toLowerCase()
-  if (!server) return notify('Informe o servidor')
+  if (!server) {
+    erro.value = 'Informe o endereço do servidor.'
+    return
+  }
   try {
     await run('UPDATE usuario SET server = ?', [server])
     if (auth.usuario) auth.usuario.server = server
@@ -34,9 +40,10 @@ async function save() {
         </div>
         <label class="block">
           <span class="label">Endereço do servidor</span>
-          <input v-model="form.server" type="text" inputmode="url" autocapitalize="off" autocorrect="off" class="input" />
+          <input v-model="form.server" type="text" inputmode="url" autocapitalize="off" autocorrect="off" class="input" :aria-invalid="!!erro" aria-describedby="erro-servidor" @input="erro = ''" />
+          <FieldError id="erro-servidor" :msg="erro" />
         </label>
-        <button class="btn btn-primary w-full" @click="save">Salvar servidor</button>
+        <button type="button" class="btn btn-primary w-full" :disabled="!alterado" @click="save">Salvar servidor</button>
       </section>
 
       <dl class="list">

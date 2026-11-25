@@ -33,7 +33,7 @@ watch(
     :subtitle="item ? `OS ${item.os}` : undefined"
     @close="emit('close')"
   >
-    <p v-if="erro" class="rounded-xl bg-danger-100 text-danger-700 px-3.5 py-3 text-sm" role="alert">{{ erro }}</p>
+    <p v-if="erro" class="alert alert-danger" role="alert">{{ erro }}</p>
     <LoadingState v-else-if="!detalhe" />
     <template v-else>
       <dl class="grid grid-cols-2 gap-3 text-sm">

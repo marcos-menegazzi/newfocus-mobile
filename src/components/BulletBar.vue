@@ -25,9 +25,9 @@ const targetX = computed(() => pct(props.target))
       :style="{ width: `${targetX}%` }"
     />
     <div
-      class="bar-fill absolute left-0 top-1/2 -translate-y-1/2 rounded-r bg-brand-600"
+      class="bar-fill absolute inset-x-0 top-1/2 -translate-y-1/2 bg-brand-600"
       :class="size === 'lg' ? 'h-3.5' : 'h-2.5'"
-      :style="{ width: `${valueW}%` }"
+      :style="{ '--escala': valueW / 100 }"
     />
     <div
       v-if="target > 0"
@@ -39,6 +39,8 @@ const targetX = computed(() => pct(props.target))
 
 <style scoped>
 .bar-fill {
-  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: left;
+  transform: scaleX(var(--escala));
+  transition: transform 0.5s var(--ease-enter);
 }
 </style>

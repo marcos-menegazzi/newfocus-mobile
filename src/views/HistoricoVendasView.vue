@@ -15,7 +15,9 @@ import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
 import { formatPeriodo, hojeISO, primeiroDiaMesISO } from '../lib/periodo'
 import { useToast } from '../composables/useToast'
+import { useAoVoltar } from '../composables/useAoVoltar'
 import { useFilters } from '../composables/useFilters'
+import { useListaProgressiva } from '../composables/useListaProgressiva'
 
 const COLUMNS: Record<string, string> = {
   pedido: 'h.pedido',
@@ -44,6 +46,7 @@ const { filtros, draft, show: showFiltros, abrir: abrirFiltros, aplicar: aplicar
 
 const search = ref('')
 const vendas = ref<VendaRow[]>([])
+const { visiveis, temMais } = useListaProgressiva(vendas)
 const loading = ref(false)
 const searched = ref(false)
 
@@ -86,6 +89,7 @@ GROUP BY x.pedido ORDER BY x.pedido DESC`
 }
 
 onMounted(buscar)
+useAoVoltar(buscar)
 
 const totalQuantidade = computed(() => vendas.value.reduce((s, v) => s + Number(v.quantidade), 0))
 const totalValor = computed(() => vendas.value.reduce((s, v) => s + Number(v.total), 0))
@@ -131,15 +135,15 @@ function abrirVenda(v: VendaRow) {
         </div>
       </section>
 
-      <LoadingState v-if="loading && !searched" />
+      <LoadingState v-if="loading && !searched" :rows="6" label="Carregando vendas…" />
       <div v-else-if="searched && vendas.length === 0" class="panel">
         <EmptyState icon="chart" label="Nenhuma venda no período" hint="Escolha outro período nos filtros." />
       </div>
       <ul v-else class="list" :class="{ 'opacity-60': loading }">
-        <li v-for="v in vendas" :key="v.pedido">
+        <li v-for="v in visiveis" :key="v.pedido">
           <button class="list-row flex items-center gap-3" @click="abrirVenda(v)">
             <div class="min-w-0 flex-1">
-              <p class="text-[15px] font-medium truncate">{{ v.fantasia }}</p>
+              <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ v.fantasia }}</p>
               <p class="meta tabular-nums mt-0.5">Nº {{ v.pedido }}, {{ mudadata(v.data) }}</p>
             </div>
             <div class="text-right shrink-0">
@@ -150,6 +154,7 @@ function abrirVenda(v: VendaRow) {
           </button>
         </li>
       </ul>
+      <div v-if="temMais" ref="sentinela" class="h-px" aria-hidden="true" />
     </div>
 
     <Sheet :open="showFiltros" title="Filtrar vendas" @close="showFiltros = false">
@@ -159,12 +164,12 @@ function abrirVenda(v: VendaRow) {
           <span class="label">Buscar em</span>
           <Segmented v-model="draft.col" :options="COL_OPTIONS" label="Buscar em" />
         </div>
-        <label class="flex items-center justify-between gap-4 rounded-xl border border-ink-200 px-4 py-3.5">
+        <label class="switch-row rounded-xl border border-ink-200 px-4 py-2">
           <span>
             <span class="block text-[15px] font-medium">Somente itens faturados</span>
             <span class="meta">Ignora itens ainda não faturados.</span>
           </span>
-          <input v-model="draft.faturamento" type="checkbox" class="h-5 w-5 accent-brand-600" />
+          <input v-model="draft.faturamento" type="checkbox" class="switch" />
         </label>
       </div>
       <template #footer>

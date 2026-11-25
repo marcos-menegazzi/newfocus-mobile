@@ -12,10 +12,11 @@
   --color-ink-900: #1b3350;
   --color-ink-700: #36495f;
   --color-ink-500: #4a5b70;
-  --color-ink-400: #5c687a;
+  --color-ink-400: #566274;
   --color-ink-300: #a9a696;
   --color-ink-200: #ddd1bb;
   --color-ink-100: #e9dfcd;
+  --color-field: #8c8270; /* contorno de campos e controles: 3:1 sobre creme e superfície */
   --color-ink-50: #f6f0e4;
 
   --color-brand-50: #e1e7ed;
@@ -26,8 +27,10 @@
   --color-brand-600: #1b3350;
   --color-brand-700: #122439;
 
+  /* 500 é para gráficos e indicadores; texto branco só sobre 600 ou 700 (4,5:1). */
   --color-accent-500: #f03a2a;
-  --color-accent-600: #d42a1b;
+  --color-accent-600: #dd2f20;
+  --color-accent-700: #b5200f;
 
   --color-success-50: #ddefd9;
   --color-success-100: #c9e5c4;
@@ -53,6 +56,22 @@
 
   --shadow-sheet: 0 -8px 32px rgb(27 51 80 / 0.16);
   --shadow-pop: 0 6px 24px rgb(27 51 80 / 0.18);
+
+  /* Movimento: entrar desacelera, sair é mais curto. */
+  --ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+:root {
+  color-scheme: light;
+  --app-bar-h: 3.5rem;
+}
+
+/* O foco nunca para atrás da barra do topo nem do rodapé fixo. Só no conteúdo: nas
+   próprias barras (fixas) a margem faria a página rolar ao focá-las. */
+main .page :is(a, button, input, textarea, select, [tabindex]) {
+  scroll-margin-top: calc(var(--app-bar-h) + env(safe-area-inset-top) + 4.5rem);
+  scroll-margin-bottom: 9rem;
 }
 
 html, body, #app {
@@ -67,13 +86,25 @@ body {
   color: var(--color-ink-900);
   overscroll-behavior-y: none;
   -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
-:focus-visible {
-  outline: 2px solid var(--color-brand-600);
-  outline-offset: 2px;
+@layer base {
+  button, a, label, summary { touch-action: manipulation; }
+  button:not(:disabled), label:has(> input[type='checkbox']) { cursor: pointer; }
+  /* Só o estilo da quebra: não desfaz o truncate (nowrap) de quem o usa. */
+  h2, h3 { text-wrap-style: balance; }
+  p, dd { overflow-wrap: anywhere; }
 }
-.on-navy :focus-visible { outline-color: var(--color-cream); }
+
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-brand-600);
+    outline-offset: 2px;
+  }
+  .on-navy :focus-visible { outline-color: var(--color-cream); }
+}
 
 ::selection {
   background: var(--color-brand-600);
@@ -88,19 +119,29 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
+
+@keyframes girar { to { transform: rotate(1turn); } }
+@keyframes surgir { from { opacity: 0; } }
+@keyframes pulsar { 50% { opacity: 0.45; } }
 
 @layer components {
   .label {
     @apply block mb-1.5 text-[13px] font-medium text-ink-700;
   }
   .input {
-    @apply block w-full min-h-12 rounded-[10px] bg-surface border border-ink-200 px-3.5 py-2.5 text-base text-ink-900 placeholder:text-ink-400 transition-colors;
-    @apply focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15;
-    @apply disabled:bg-ink-50 disabled:text-ink-500;
+    @apply block w-full min-h-12 rounded-[10px] bg-surface border border-field px-3.5 py-2.5 text-base text-ink-900 placeholder:text-ink-400 transition-colors;
+    /* 2px cheios de azul-marinho: borda + anel. */
+    @apply focus:outline-none focus:border-brand-600 focus:ring-1 focus:ring-brand-600;
+    @apply disabled:bg-ink-50 disabled:text-ink-500 disabled:border-ink-200;
   }
+  .input[aria-invalid='true'] { @apply border-danger-600 focus:border-danger-600 focus:ring-danger-600; }
+  .field-error { @apply mt-1.5 flex items-start gap-1.5 text-sm text-danger-700; }
+  .required::after { content: ' *'; @apply text-danger-600; }
   select.input {
     @apply appearance-none pr-10 bg-no-repeat;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234a5b70' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
@@ -117,22 +158,33 @@ body {
 
   .btn {
     @apply inline-flex items-center justify-center gap-2 min-h-12 px-4 rounded-[10px] text-[15px] font-semibold whitespace-nowrap transition select-none;
-    @apply active:scale-[0.98] disabled:opacity-45 disabled:pointer-events-none;
+    @apply relative active:scale-[0.98] disabled:opacity-45 disabled:pointer-events-none;
   }
-  .btn-sm { @apply min-h-9 px-3 text-sm rounded-lg; }
+  .btn-sm { @apply min-h-11 px-3 text-sm rounded-lg; }
+  /* Enquanto trabalha, o botão troca o ícone por um giro e não aceita outro toque. */
+  .btn[aria-busy='true'] { @apply pointer-events-none; }
+  .btn[aria-busy='true'] > svg { display: none; }
+  .btn[aria-busy='true']::before {
+    content: '';
+    @apply h-[1.1em] w-[1.1em] shrink-0 rounded-full border-2 border-current border-r-transparent;
+    animation: girar 0.8s linear infinite;
+  }
   .btn-primary {
-    @apply bg-accent-500 text-white font-bold active:bg-accent-600;
+    @apply bg-accent-600 text-white font-bold active:bg-accent-700;
     @apply disabled:bg-ink-200 disabled:text-ink-500 disabled:opacity-100;
   }
-  .btn-secondary { @apply bg-surface text-ink-900 border border-ink-200 active:bg-ink-50; }
+  .btn-secondary { @apply bg-surface text-ink-900 border border-field active:bg-ink-50; }
   .btn-tonal { @apply bg-brand-50 text-brand-600 active:bg-brand-100; }
   .btn-ghost { @apply text-ink-700 active:bg-ink-100; }
   .btn-danger { @apply bg-danger-100 text-danger-700 active:bg-danger-100/70; }
+  .btn-danger-solid { @apply bg-danger-600 text-white font-bold active:bg-danger-700; }
 
   .icon-btn {
-    @apply inline-flex items-center justify-center h-10 w-10 shrink-0 rounded-full text-ink-700 transition active:bg-ink-100;
+    @apply relative inline-flex items-center justify-center h-11 w-11 shrink-0 rounded-full text-ink-700 transition active:bg-ink-100;
     @apply disabled:opacity-35 disabled:pointer-events-none;
   }
+  /* Área de toque de 48px (Android) mesmo quando o desenho é menor. */
+  .icon-btn::after, .btn-sm::after { content: ''; position: absolute; inset: -2px; }
 
   /* Barra do app: controles sobre o azul-marinho. */
   .app-bar { @apply bg-brand-600 text-cream; }
@@ -140,13 +192,26 @@ body {
   .app-bar .btn-secondary { @apply bg-transparent text-cream border-brand-300 active:bg-brand-500; }
 
   .link {
-    @apply text-sm font-semibold text-brand-600 underline decoration-accent-500 decoration-2 underline-offset-4 active:text-accent-600;
+    @apply text-sm font-semibold text-brand-600 underline decoration-accent-500 decoration-2 underline-offset-4 active:text-accent-700;
   }
 
   .page { @apply px-4 pt-4 pb-10 space-y-4; }
   .panel { @apply bg-surface rounded-2xl border border-ink-200/80; }
   .list { @apply bg-surface rounded-2xl border border-ink-200/80 divide-y divide-ink-100 overflow-hidden; }
   .list-row { @apply block w-full text-left px-4 py-3.5 active:bg-ink-50 transition-colors disabled:pointer-events-none; }
+  /* Linhas fora da tela não custam layout nem pintura. */
+  .list > li { content-visibility: auto; contain-intrinsic-size: auto 5.5rem; }
+  /* Foco por dentro: a lista corta o que passa da borda. */
+  .list :is(a, button):focus-visible, .list-row:focus-visible { outline-offset: -2px; }
+
+  .alert { @apply flex items-start gap-2 rounded-xl px-3.5 py-3 text-sm; }
+  .alert-danger { @apply bg-danger-100 text-danger-700; }
+  .alert-warn { @apply bg-sun-100 text-sun-800; }
+  .alert-info { @apply bg-info-100 text-info-800; }
+  .alert-success { @apply bg-success-50 text-success-800; }
+
+  .skeleton { @apply rounded-md bg-ink-100; animation: pulsar 1.4s ease-in-out infinite; }
+  .on-navy .skeleton { @apply bg-brand-500; }
 
   .section-title { @apply text-[15px] font-semibold text-ink-900; }
   .meta { @apply text-[13px] text-ink-500; }
@@ -159,18 +224,21 @@ body {
   }
 
   .switch {
-    @apply relative shrink-0 h-[26px] w-11 rounded-full bg-ink-200 appearance-none cursor-pointer transition-colors;
+    @apply relative shrink-0 h-[26px] w-11 rounded-full bg-field appearance-none cursor-pointer transition-colors;
   }
   .switch::after {
     content: '';
-    @apply absolute top-[3px] left-[3px] h-5 w-5 rounded-full bg-white shadow-[0_1px_3px_rgb(15_23_42/0.3)] transition-transform;
+    @apply absolute top-[3px] left-[3px] h-5 w-5 rounded-full bg-white shadow-[0_1px_3px_rgb(27_51_80/0.3)] transition-transform;
   }
+  .switch-row { @apply flex items-center justify-between gap-3 min-h-12; }
+  .switch:disabled { @apply opacity-50 cursor-not-allowed; }
   .switch:checked { @apply bg-brand-600; }
   .switch:checked::after { transform: translateX(18px); }
 
   .data-table { @apply w-full text-left text-sm; }
   .data-table th { @apply py-2.5 px-3 text-xs font-medium text-ink-500 whitespace-nowrap border-b border-ink-200; }
   .data-table td { @apply py-2.5 px-3 text-ink-900 border-b border-ink-100; }
-  .data-table tr:last-child td { @apply border-b-0; }
+  .data-table th.row-label { @apply text-sm text-ink-900 whitespace-normal border-ink-100; }
+  .data-table tbody tr:last-child > * { @apply border-b-0; }
   .data-table .num { @apply text-right tabular-nums whitespace-nowrap; }
 }

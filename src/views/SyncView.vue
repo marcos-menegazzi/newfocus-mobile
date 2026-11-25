@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
+import FieldError from '../components/FieldError.vue'
 import Icon from '../components/Icon.vue'
 import Sheet from '../components/Sheet.vue'
 import Meter from '../components/Meter.vue'
@@ -112,15 +113,15 @@ async function confirmarRestaurar() {
           </div>
         </div>
 
-        <div v-if="store.running || done || store.error" class="mt-5" aria-live="polite">
+        <div v-if="store.running || done || store.error" class="mt-5">
           <div class="flex items-baseline justify-between gap-3 mb-2">
-            <span class="text-sm text-ink-700 truncate">{{ store.step }}</span>
+            <span class="text-sm text-ink-700 truncate" role="status">{{ store.step }}</span>
             <span class="text-sm font-semibold tabular-nums">{{ store.progress }}%</span>
           </div>
           <Meter :value="store.progress" :max="100" label="Progresso da sincronização" />
         </div>
 
-        <p v-if="store.error" class="mt-4 flex items-start gap-2 rounded-xl bg-danger-100 text-danger-700 px-3.5 py-3 text-sm" role="alert">
+        <p v-if="store.error" class="mt-4 alert alert-danger" role="alert">
           <Icon name="alert" class="mt-px" />
           <span>{{ store.error }}</span>
         </p>
@@ -128,7 +129,7 @@ async function confirmarRestaurar() {
         <fieldset class="mt-5" :disabled="store.running">
           <legend class="label">O que sincronizar</legend>
           <div class="divide-y divide-ink-100 rounded-xl border border-ink-200">
-            <label v-for="g in GRUPOS" :key="g.key" class="flex items-center gap-3 px-3.5 py-3 text-[15px]">
+            <label v-for="g in GRUPOS" :key="g.key" class="switch-row px-3.5 py-1.5 text-[15px]">
               <Icon :name="g.icon" class="text-ink-500" />
               <span class="flex-1">{{ g.label }}</span>
               <input v-model="opcoes[g.key]" type="checkbox" class="switch" />
@@ -137,7 +138,7 @@ async function confirmarRestaurar() {
           <p class="meta mt-2">Condições, operações, empresas e demais cadastros são sempre atualizados.<template v-if="opcoes.pedidos && !opcoes.clientes"> Enviar pedidos também atualiza os clientes.</template></p>
         </fieldset>
 
-        <button class="btn btn-primary w-full mt-5" :disabled="store.running" @click="iniciar">
+        <button type="button" class="btn btn-primary w-full mt-5" :disabled="store.running" :aria-busy="store.running" @click="iniciar">
           <Icon name="sync" />
           {{ store.running ? 'Sincronizando…' : store.error ? 'Tentar de novo' : 'Sincronizar agora' }}
         </button>
@@ -176,14 +177,14 @@ async function confirmarRestaurar() {
       <form id="form-restaurar" @submit.prevent="confirmarRestaurar">
         <label class="block">
           <span class="label">Digite sua senha para confirmar</span>
-          <input v-model="senha" type="password" autocomplete="current-password" class="input" required />
+          <input v-model="senha" type="password" autocomplete="current-password" class="input" required :aria-invalid="!!erroRestaurar" aria-describedby="erro-restaurar" />
         </label>
-        <p v-if="erroRestaurar" class="mt-2 text-sm text-danger-700" role="alert">{{ erroRestaurar }}</p>
+        <div role="alert"><FieldError id="erro-restaurar" :msg="erroRestaurar" /></div>
       </form>
       <template #footer>
         <div class="grid grid-cols-2 gap-2">
           <button type="button" class="btn btn-secondary" @click="showRestaurar = false">Cancelar</button>
-          <button type="submit" form="form-restaurar" class="btn bg-danger-600 text-white active:bg-danger-700" :disabled="restaurando || !senha">
+          <button type="submit" form="form-restaurar" class="btn btn-danger-solid" :disabled="restaurando || !senha" :aria-busy="restaurando">
             {{ restaurando ? 'Restaurando…' : 'Apagar tudo' }}
           </button>
         </div>

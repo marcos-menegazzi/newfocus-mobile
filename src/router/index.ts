@@ -1,5 +1,7 @@
+import { nextTick } from 'vue'
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { esquecerRolagem, guardarRolagem, rolagem } from './rolagem'
 
 export const routes = [
   { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
@@ -29,6 +31,12 @@ export const routes = [
 const router = createRouter({
   history: createWebHashHistory(),
   routes,
+  scrollBehavior: rolagem,
+})
+
+router.beforeEach((to, from) => {
+  guardarRolagem(from, window.scrollY)
+  if (to.name === 'login') esquecerRolagem()
 })
 
 router.beforeEach(async (to) => {
@@ -42,6 +50,16 @@ router.beforeEach(async (to) => {
   // Usuário de OS só acessa as telas de OS; o de pedidos não acessa as de OS.
   if (!!to.meta.os !== auth.isOs) return { name: auth.homeRoute }
   return true
+})
+
+// O pedido novo vira o próprio pedido ao ser gravado: mesma tela, sem mexer no foco.
+const tela = (name: unknown) => (name === 'pedido-novo' ? 'pedido-edit' : name)
+
+router.afterEach(async (to, from, falha) => {
+  if (falha || !from.name || tela(to.name) === tela(from.name)) return
+  await nextTick()
+  // Leitor de tela e teclado seguem a partir do conteúdo da nova tela.
+  document.querySelector<HTMLElement>('main')?.focus({ preventScroll: true })
 })
 
 export default router

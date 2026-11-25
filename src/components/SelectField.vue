@@ -74,22 +74,23 @@ function escolher(o: SelectOption<V>) {
     v-bind="$attrs"
     type="button"
     class="input text-left flex items-center justify-between gap-2"
-    :class="size === 'sm' ? 'min-h-10 py-1.5 text-sm' : ''"
+    :class="size === 'sm' ? 'min-h-11 py-1.5 text-sm' : ''"
     :disabled="disabled"
     :aria-label="ariaLabel"
     aria-haspopup="dialog"
+    :aria-expanded="open"
     @click="abrir"
   >
     <span class="truncate" :class="selected ? '' : 'text-ink-400'">
       <template v-if="selected">{{ prefix ? `${prefix} ${selected.label}` : selected.label }}</template>
       <template v-else>{{ placeholder ?? 'Selecione' }}</template>
     </span>
-    <Icon name="chevron-right" class="text-ink-400 shrink-0" />
+    <Icon name="chevron-down" class="text-ink-500 shrink-0" />
   </button>
 
   <Sheet :open="open" :title="title" :size="searchable ? 'tall' : 'auto'" @close="open = false">
     <div v-if="searchable" class="sticky top-0 z-[1] bg-surface pb-3 -mx-5 px-5">
-      <SearchField v-model="busca" placeholder="Buscar na lista" />
+      <SearchField v-model="busca" placeholder="Buscar na lista" :auto="false" />
     </div>
     <EmptyState
       v-if="options.length === 0"

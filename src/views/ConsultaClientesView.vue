@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useAoVoltar } from '../composables/useAoVoltar'
 import { useFilters } from '../composables/useFilters'
+import { useListaProgressiva } from '../composables/useListaProgressiva'
 import { RouterLink } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -15,6 +17,7 @@ import Segmented from '../components/Segmented.vue'
 import Sheet from '../components/Sheet.vue'
 import { buscarClientes, type ClienteRow } from '../services/clientes'
 import { periodoMes } from '../lib/periodo'
+import { abrirSeletor } from '../lib/picker'
 import { call } from '../services/sync/context'
 import { childText, linhas } from '../services/sync/helpers'
 import { text } from '../services/soap'
@@ -56,6 +59,7 @@ const { filtros, draft, show: showFiltros, abrir: abrirFiltros, aplicar: aplicar
 
 const search = ref('')
 const clientes = ref<ClienteRow[]>([])
+const { visiveis, temMais } = useListaProgressiva(clientes)
 const loading = ref(false)
 const searched = ref(false)
 
@@ -90,6 +94,7 @@ const telefone = (c: ClienteRow) => (c.tel1 ? `${c.ddd ? `(${c.ddd}) ` : ''}${c.
 const endereco = (c: ClienteRow) => [c.endereco, c.numero].filter(Boolean).join(', ')
 
 onMounted(buscar)
+useAoVoltar(buscar)
 
 const extratoDe = ref<number | null>(null)
 
@@ -154,7 +159,7 @@ async function buscarGarantias() {
 </script>
 
 <template>
-  <AppShell title="Clientes" :subtitle="searched ? `${clientes.length} encontrados` : undefined">
+  <AppShell title="Clientes" :subtitle="searched ? `${clientes.length} ${clientes.length === 1 ? 'encontrado' : 'encontrados'}` : undefined">
     <template #actions>
       <FilterButton :count="chips.length" class="mr-1" @click="abrirFiltros" />
       <RouterLink :to="{ name: 'cliente-novo' }" class="icon-btn" aria-label="Novo cliente">
@@ -168,50 +173,59 @@ async function buscarGarantias() {
         <FilterChips :items="chips" @remove="removerFiltro" @open="abrirFiltros" />
       </div>
 
-      <LoadingState v-if="loading && !searched" />
+      <LoadingState v-if="loading && !searched" :rows="6" label="Carregando clientes…" />
       <div v-else-if="searched && clientes.length === 0" class="panel">
         <EmptyState icon="users" label="Nenhum cliente encontrado" hint="Tente outro termo ou ajuste os filtros." />
       </div>
       <ul v-else class="list" :class="{ 'opacity-60': loading }">
         <li
-          v-for="c in clientes"
+          v-for="c in visiveis"
           :key="c.clifor"
-          class="px-4 pt-3.5 pb-3"
+          class="pb-3"
           :class="c.titulos > 0 ? 'bg-sun-100/70 border-l-4 border-l-sun-400' : ''"
           :data-titulos="c.titulos > 0 ? '' : undefined"
         >
-          <RouterLink :to="`/clientes/${c.clifor}`" class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <p class="text-[15px] font-semibold truncate">{{ nomeCliente(c) }}</p>
+          <RouterLink :to="`/clientes/${c.clifor}`" class="flex items-start gap-3 px-4 pt-3.5 pb-3 transition-colors active:bg-ink-900/5">
+            <div class="min-w-0 flex-1">
+              <p class="text-[15px] font-semibold leading-snug line-clamp-2">{{ nomeCliente(c) }}</p>
               <p v-if="endereco(c)" class="meta truncate mt-0.5">{{ endereco(c) }}</p>
               <p class="meta truncate mt-0.5">{{ c.cidade }}{{ c.estado ? ` / ${c.estado}` : '' }}</p>
-              <p v-if="telefone(c)" class="meta truncate flex items-center gap-1.5 mt-0.5">
+              <p v-if="telefone(c)" class="meta truncate flex items-center gap-1.5 mt-0.5 tabular-nums">
                 <Icon name="phone" :size="14" /> {{ telefone(c) }}
               </p>
-            </div>
-            <span class="flex shrink-0 flex-col items-end gap-1.5">
-              <span
-                v-if="c.titulos > 0"
-                class="inline-flex items-center gap-1 rounded-full bg-sun-400/25 text-sun-800 pl-1.5 pr-2.5 h-6 text-xs font-semibold"
-              >
-                <Icon name="alert" :size="14" :stroke="2.2" /> {{ c.titulos }} {{ c.titulos === 1 ? 'título em aberto' : 'títulos em aberto' }}
+              <span class="mt-2 flex flex-wrap gap-1.5">
+                <PositivadoChip :positivado="c.positivado > 0" />
+                <span
+                  v-if="c.titulos > 0"
+                  class="inline-flex items-center gap-1 rounded-full bg-sun-400/25 text-sun-800 pl-1.5 pr-2.5 min-h-6 text-xs font-semibold"
+                >
+                  <Icon name="alert" :size="14" :stroke="2.2" /> {{ c.titulos }} {{ c.titulos === 1 ? 'título em aberto' : 'títulos em aberto' }}
+                </span>
               </span>
-              <PositivadoChip :positivado="c.positivado > 0" />
-            </span>
+            </div>
+            <Icon name="chevron-right" class="mt-0.5 text-ink-400" />
           </RouterLink>
-          <div class="flex gap-2 mt-3">
-            <RouterLink :to="{ path: `/titulos/${c.codigo}`, query: { fantasia: c.fantasia } }" class="btn btn-tonal btn-sm">
+          <div class="flex flex-wrap gap-2 px-4">
+            <RouterLink :to="{ path: `/titulos/${c.codigo}`, query: { fantasia: c.fantasia } }" class="btn btn-tonal btn-sm flex-1 min-w-fit px-1.5 gap-1.5 max-[359px]:[&>svg]:hidden" :aria-label="`Títulos de ${nomeCliente(c)}`">
               <Icon name="receipt" :size="16" /> Títulos
             </RouterLink>
-            <button class="btn btn-tonal btn-sm" :disabled="extratoDe !== null" @click="extrato(c)">
-              <Icon name="file" :size="16" /> {{ extratoDe === c.clifor ? 'Gerando…' : 'Extrato' }}
+            <button
+              type="button"
+              class="btn btn-tonal btn-sm flex-1 min-w-fit px-1.5 gap-1.5 max-[359px]:[&>svg]:hidden"
+              :disabled="extratoDe !== null && extratoDe !== c.clifor"
+              :aria-busy="extratoDe === c.clifor"
+              :aria-label="`Extrato de ${nomeCliente(c)}`"
+              @click="extrato(c)"
+            >
+              <Icon name="file" :size="16" /> Extrato
             </button>
-            <button class="btn btn-tonal btn-sm" @click="abrirGarantias(c)">
+            <button type="button" class="btn btn-tonal btn-sm flex-1 min-w-fit px-1.5 gap-1.5 max-[359px]:[&>svg]:hidden" :aria-label="`Garantias de ${nomeCliente(c)}`" @click="abrirGarantias(c)">
               <Icon name="shield" :size="16" /> Garantias
             </button>
           </div>
         </li>
       </ul>
+      <div v-if="temMais" ref="sentinela" class="h-px" aria-hidden="true" />
     </div>
 
     <Sheet :open="showFiltros" title="Filtrar clientes" @close="showFiltros = false">
@@ -224,7 +238,7 @@ async function buscarGarantias() {
           <span class="label">Positivação no mês</span>
           <Segmented v-model="draft.positivado" :options="POSITIVADO_OPTIONS" label="Positivação no mês" />
         </div>
-        <label class="flex items-center justify-between gap-4 rounded-xl border border-ink-200 px-4 py-3.5">
+        <label class="switch-row rounded-xl border border-ink-200 px-4 py-2">
           <span class="text-[15px] font-medium">Só com títulos em aberto</span>
           <input v-model="draft.titulos" type="checkbox" class="switch" />
         </label>
@@ -241,11 +255,11 @@ async function buscarGarantias() {
       <div class="grid grid-cols-2 gap-3">
         <label class="block">
           <span class="label">De</span>
-          <input v-model="g.dtInicial" type="date" class="input" />
+          <input v-model="g.dtInicial" type="date" class="input input-datetime" @click="abrirSeletor" />
         </label>
         <label class="block">
           <span class="label">Até</span>
-          <input v-model="g.dtFinal" type="date" class="input" />
+          <input v-model="g.dtFinal" type="date" class="input input-datetime" :min="g.dtInicial || undefined" @click="abrirSeletor" />
         </label>
         <label class="block">
           <span class="label">Disposição</span>
@@ -256,7 +270,7 @@ async function buscarGarantias() {
           <Segmented v-model="g.resolvido" :options="[{ value: 'N', label: 'Não' }, { value: 'S', label: 'Sim' }]" label="Resolvido" />
         </div>
       </div>
-      <button class="btn btn-primary w-full mt-4" :disabled="gLoading" @click="buscarGarantias">
+      <button type="button" class="btn btn-primary w-full mt-4" :aria-busy="gLoading" :disabled="gLoading" @click="buscarGarantias">
         {{ gLoading ? 'Buscando…' : 'Buscar garantias' }}
       </button>
 

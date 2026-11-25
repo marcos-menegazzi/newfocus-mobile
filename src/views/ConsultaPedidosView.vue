@@ -16,7 +16,10 @@ import { formatReal, mudadata } from '../lib/format'
 import { danfeEmitida, motivoBoleto, motivoNfe } from '../services/pedido/acoes'
 import { abrirDanfe, emitirNfe, emitirBoleto, reenviarPedido } from '../services/sync/fiscal'
 import { useToast } from '../composables/useToast'
+import { useAoVoltar } from '../composables/useAoVoltar'
 import { useFilters } from '../composables/useFilters'
+import { useListaProgressiva } from '../composables/useListaProgressiva'
+import { useOcupado } from '../composables/useOcupado'
 
 const COLUMNS: Record<string, string> = {
   numpedido: 'p.numpedido',
@@ -64,6 +67,9 @@ const { filtros, draft, show: showFiltros, abrir: abrirFiltros, aplicar: aplicar
 
 const search = ref('')
 const pedidos = ref<PedidoRow[]>([])
+const { visiveis, temMais } = useListaProgressiva(pedidos)
+// Emitir nota ou boleto duas vezes por um toque repetido não pode acontecer.
+const { ocupado, executar } = useOcupado()
 const loading = ref(false)
 const searched = ref(false)
 
@@ -116,6 +122,11 @@ async function buscar() {
 }
 
 onMounted(buscar)
+useAoVoltar(buscar)
+
+// Na lista só entra o que dá para fazer agora; o motivo do que falta está em Mais ações, no pedido.
+const temAcoes = (p: PedidoRow) =>
+  p.status !== 'C' && p.itens > 0 && (!motivoNfe(p) || !motivoBoleto(p) || p.status === 'V')
 
 function abrirPedido(p: PedidoRow) {
   router.push(`/pedidos/${p.numpedido}`)
@@ -128,7 +139,7 @@ async function nfe(p: PedidoRow) {
       return
     }
     if (!(await emitirNfe(p.numpedido, p.lancto))) notify('Pedido emitido com sucesso', 'success')
-    buscar()
+    await buscar()
   } catch (e) {
     notify(e instanceof Error ? e.message : 'Não foi possível gerar a NF-e', 'error')
   }
@@ -171,10 +182,10 @@ async function reenviarMarcados() {
 </script>
 
 <template>
-  <AppShell title="Pedidos" :subtitle="searched ? `${pedidos.length} pedidos` : undefined">
+  <AppShell title="Pedidos" :subtitle="searched ? `${pedidos.length} ${pedidos.length === 1 ? 'pedido' : 'pedidos'}` : undefined">
     <template #actions>
       <FilterButton :count="chips.length" @click="abrirFiltros" />
-      <RouterLink :to="{ name: 'pedido-novo' }" class="btn btn-primary btn-sm min-h-10 mr-1">
+      <RouterLink :to="{ name: 'pedido-novo' }" class="btn btn-primary btn-sm mr-1">
         <Icon name="plus" :size="18" /> Novo
       </RouterLink>
     </template>
@@ -189,17 +200,17 @@ async function reenviarMarcados() {
         <FilterChips :items="chips" @remove="removerFiltro" @open="abrirFiltros" />
       </div>
 
-      <LoadingState v-if="loading && !searched" />
+      <LoadingState v-if="loading && !searched" :rows="6" label="Carregando pedidos…" />
       <div v-else-if="searched && pedidos.length === 0" class="panel">
         <EmptyState icon="orders" label="Nenhum pedido encontrado" hint="Tente outro termo ou ajuste os filtros.">
           <RouterLink :to="{ name: 'pedido-novo' }" class="btn btn-tonal btn-sm">Criar pedido</RouterLink>
         </EmptyState>
       </div>
       <ul v-else class="list" :class="{ 'opacity-60': loading }">
-        <li v-for="p in pedidos" :key="p.numpedido" class="px-4 py-3.5">
-          <button class="w-full text-left flex items-start justify-between gap-3" @click="abrirPedido(p)">
+        <li v-for="p in visiveis" :key="p.numpedido">
+          <button type="button" class="list-row flex items-start justify-between gap-3" @click="abrirPedido(p)">
             <div class="min-w-0">
-              <p class="text-[15px] font-semibold truncate">{{ p.fantasia ? `${p.clifor} - ${p.fantasia}` : 'Cliente não informado' }}</p>
+              <p class="text-[15px] font-semibold leading-snug line-clamp-2">{{ p.fantasia ? `${p.clifor} - ${p.fantasia}` : 'Cliente não informado' }}</p>
               <p class="meta tabular-nums mt-0.5">Nº {{ p.numpedido }}, {{ mudadata(p.data) }}</p>
             </div>
             <div class="flex flex-col items-end gap-1 shrink-0">
@@ -207,27 +218,46 @@ async function reenviarMarcados() {
               <StatusChip :status="p.status" :itens="p.itens" />
             </div>
           </button>
-          <div v-if="p.status !== 'C' && p.itens > 0" class="flex flex-wrap items-center gap-2 mt-3">
-            <button class="btn btn-tonal btn-sm" :disabled="!!motivoNfe(p)" :title="motivoNfe(p) ?? undefined" @click="nfe(p)">
+          <div v-if="temAcoes(p)" class="flex flex-wrap items-center gap-2 px-4 pb-3">
+            <button
+              v-if="!motivoNfe(p)"
+              type="button"
+              class="btn btn-tonal btn-sm"
+              :aria-busy="ocupado === `nfe-${p.numpedido}`"
+              :disabled="!!ocupado && ocupado !== `nfe-${p.numpedido}`"
+              :aria-label="`${danfeEmitida(p) ? 'DANFE' : 'NF-e'} do pedido ${p.numpedido}`"
+              @click="executar(`nfe-${p.numpedido}`, () => nfe(p))"
+            >
               <Icon name="file" :size="16" /> {{ danfeEmitida(p) ? 'DANFE' : 'NF-e' }}
             </button>
-            <button class="btn btn-tonal btn-sm" :disabled="!!motivoBoleto(p)" :title="motivoBoleto(p) ?? undefined" @click="boleto(p)">
+            <button
+              v-if="!motivoBoleto(p)"
+              type="button"
+              class="btn btn-tonal btn-sm"
+              :aria-busy="ocupado === `boleto-${p.numpedido}`"
+              :disabled="!!ocupado && ocupado !== `boleto-${p.numpedido}`"
+              :aria-label="`Boleto do pedido ${p.numpedido}`"
+              @click="executar(`boleto-${p.numpedido}`, () => boleto(p))"
+            >
               <Icon name="barcode" :size="16" /> Boleto
             </button>
-            <button v-if="p.status === 'V'" class="btn btn-tonal btn-sm" @click="reenviar(p)">
-              <Icon name="send" :size="16" /> Reenviar
-            </button>
-            <label v-if="p.status === 'V'" class="ml-auto flex items-center gap-2 text-sm text-ink-700">
-              <input v-model="marcados" type="checkbox" :value="p.numpedido" class="h-5 w-5 accent-brand-600" :aria-label="`Marcar pedido ${p.numpedido} para reenvio`" />
-              Marcar
-            </label>
+            <template v-if="p.status === 'V'">
+              <button type="button" class="btn btn-tonal btn-sm" :disabled="!!ocupado" :aria-label="`Reenviar pedido ${p.numpedido}`" @click="executar(`reenviar-${p.numpedido}`, () => reenviar(p))">
+                <Icon name="send" :size="16" /> Reenviar
+              </button>
+              <label class="ml-auto flex min-h-11 items-center gap-2 pl-2 text-sm text-ink-700">
+                <input v-model="marcados" type="checkbox" :value="p.numpedido" class="h-5 w-5 accent-brand-600" :aria-label="`Marcar pedido ${p.numpedido} para reenvio`" />
+                Marcar
+              </label>
+            </template>
           </div>
         </li>
       </ul>
+      <div v-if="temMais" ref="sentinela" class="h-px" aria-hidden="true" />
     </div>
 
     <template v-if="reenviaveis.length" #footer>
-      <button class="btn btn-primary w-full" @click="reenviarMarcados">
+      <button type="button" class="btn btn-primary w-full" :aria-busy="ocupado === 'lote'" :disabled="!!ocupado" @click="executar('lote', reenviarMarcados)">
         <Icon name="send" :size="18" /> Reenviar {{ reenviaveis.length }} {{ reenviaveis.length === 1 ? 'marcado' : 'marcados' }}
       </button>
     </template>
@@ -247,8 +277,8 @@ async function reenviarMarcados() {
               type="button"
               role="radio"
               :aria-checked="draft.status === o.value"
-              class="h-10 px-4 rounded-full border text-sm font-medium transition-colors"
-              :class="draft.status === o.value ? 'bg-brand-600 border-brand-600 text-white' : 'bg-surface border-ink-200 text-ink-700'"
+              class="min-h-11 px-4 rounded-full border text-sm font-medium transition-colors"
+              :class="draft.status === o.value ? 'bg-brand-600 border-brand-600 text-white' : 'bg-surface border-field text-ink-700 active:bg-ink-50'"
               @click="draft.status = o.value"
             >{{ o.label }}</button>
           </div>

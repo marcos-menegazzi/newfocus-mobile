@@ -72,10 +72,10 @@ onMounted(carregar)
       <section aria-labelledby="recentes-title">
         <div class="flex items-center justify-between mb-2 px-1">
           <h2 id="recentes-title" class="section-title">Últimos lançamentos</h2>
-          <RouterLink v-if="historico.length" :to="{ name: 'os-historico' }" class="link py-1">Ver histórico</RouterLink>
+          <RouterLink v-if="historico.length" :to="{ name: 'os-historico' }" class="link inline-flex min-h-11 items-center">Ver histórico</RouterLink>
         </div>
 
-        <div v-if="loading" class="panel"><LoadingState /></div>
+        <LoadingState v-if="loading" :rows="4" />
         <div v-else-if="erro" class="panel">
           <EmptyState icon="alert" label="Sem conexão com o servidor" hint="Ordens de serviço funcionam online. Verifique a internet e tente de novo.">
             <button class="btn btn-secondary" @click="carregar">Tentar de novo</button>

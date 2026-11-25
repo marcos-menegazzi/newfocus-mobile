@@ -82,7 +82,7 @@ function abrir() {
       <button
         v-if="!bloqueado"
         type="button"
-        class="-my-2 -mr-2 px-2 h-9 rounded-lg text-[13px] font-semibold text-brand-600 active:bg-brand-50 transition-colors"
+        class="-my-3 -mr-2 px-2 min-h-11 rounded-lg text-[13px] font-semibold text-brand-600 active:bg-brand-50 transition-colors"
         @click="alternarTodos"
       >
         {{ todos ? 'Limpar' : 'Adicionar todos' }}
@@ -91,7 +91,7 @@ function abrir() {
 
     <!-- Com gente escolhida, o campo vira a própria lista: uma linha por pessoa e,
          no fim, a linha para adicionar mais. -->
-    <div v-if="qtd && !bloqueado" class="rounded-[10px] border border-ink-200 bg-surface overflow-hidden">
+    <div v-if="qtd && !bloqueado" class="rounded-[10px] border border-field bg-surface overflow-hidden">
       <ul class="divide-y divide-ink-100" aria-label="Funcionários selecionados">
         <li v-for="f in model" :key="f.codigo" class="flex items-center gap-3 min-h-12 pl-3 pr-1">
           <span class="avatar" aria-hidden="true">{{ iniciais(f.descricao) }}</span>
@@ -128,7 +128,7 @@ function abrir() {
       @click="abrir"
     >
       <span class="truncate text-ink-400">{{ resumo }}</span>
-      <Icon v-if="!bloqueado" name="chevron-right" class="text-ink-400 shrink-0" />
+      <Icon v-if="!bloqueado" name="chevron-down" class="text-ink-500 shrink-0" />
     </button>
 
     <Sheet
@@ -139,7 +139,7 @@ function abrir() {
       @close="open = false"
     >
       <div v-if="total > SEARCH_FROM" class="sticky top-0 z-[1] bg-surface pb-3 -mx-5 px-5">
-        <SearchField v-model="busca" placeholder="Buscar funcionário" />
+        <SearchField v-model="busca" placeholder="Buscar funcionário" :auto="false" />
       </div>
 
       <EmptyState
@@ -150,7 +150,7 @@ function abrir() {
       />
       <ul v-else class="-mx-5 divide-y divide-ink-100">
         <li v-if="!busca">
-          <button type="button" class="check-row font-semibold" role="checkbox" :aria-checked="todos" @click="alternarTodos">
+          <button type="button" class="check-row font-semibold" role="checkbox" :aria-checked="todos ? 'true' : qtd ? 'mixed' : 'false'" @click="alternarTodos">
             <span class="box" :class="{ on: todos, partial: qtd && !todos }" aria-hidden="true">
               <Icon v-if="todos" name="check" :size="16" :stroke="2.6" />
               <span v-else-if="qtd" class="h-0.5 w-2.5 rounded-full bg-current" />
@@ -225,7 +225,7 @@ function abrir() {
   width: 1.375rem;
   height: 1.375rem;
   border-radius: 0.375rem;
-  border: 1.5px solid var(--color-ink-200);
+  border: 1.5px solid var(--color-field);
   background: var(--color-surface);
   color: var(--color-brand-600);
   transition:

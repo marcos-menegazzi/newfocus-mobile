@@ -30,7 +30,7 @@ onMounted(carregar)
 <template>
   <AppShell title="Histórico" subtitle="10 últimos lançamentos">
     <div class="page">
-      <LoadingState v-if="loading" />
+      <LoadingState v-if="loading" :rows="6" />
       <div v-else-if="erro" class="panel">
         <EmptyState icon="alert" label="Sem conexão com o servidor" hint="O histórico de OS é consultado online. Verifique a internet e tente de novo.">
           <button class="btn btn-secondary" @click="carregar">Tentar de novo</button>

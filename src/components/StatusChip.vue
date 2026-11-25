@@ -19,7 +19,7 @@ const chip = computed(() => (props.status === 'A' && props.itens === 0 ? RASCUNH
 </script>
 
 <template>
-  <span class="inline-flex items-center gap-1.5 rounded-full pl-2 pr-2.5 h-6 text-xs font-semibold whitespace-nowrap" :class="chip.cls">
+  <span class="inline-flex items-center gap-1.5 rounded-full pl-2 pr-2.5 min-h-6 text-xs font-semibold whitespace-nowrap" :class="chip.cls">
     <span class="h-1.5 w-1.5 rounded-full" :class="chip.dot" aria-hidden="true" />
     {{ chip.label }}
   </span>

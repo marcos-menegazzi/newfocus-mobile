@@ -142,9 +142,10 @@ async function buscar() {
     tipo.value = r.tipo
     rows.value = r.rows
     searched.value = true
-  } catch (e) {
+  } catch {
     failed.value = true
-    notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
+    // Sem nada carregado, a própria tela explica e oferece tentar de novo.
+    if (searched.value) notify('Não foi possível atualizar as metas. Verifique a conexão.', 'error')
   } finally {
     loading.value = false
   }
@@ -168,7 +169,7 @@ onMounted(async () => {
     <div class="page">
       <FilterChips :items="chips" @remove="removerFiltro" @open="abrirFiltros" />
 
-      <LoadingState v-if="loading && !searched" label="Consultando metas no servidor…" />
+      <LoadingState v-if="loading && !searched" :rows="4" label="Consultando metas no servidor…" />
 
       <div v-else-if="failed && !searched" class="panel">
         <EmptyState icon="alert" label="Não foi possível carregar as metas" hint="As metas são consultadas no servidor. Verifique a conexão com a internet.">
@@ -271,22 +272,22 @@ onMounted(async () => {
               </ul>
             </template>
 
-            <div v-else class="overflow-x-auto">
+            <div v-else class="overflow-x-auto" role="region" aria-labelledby="detalhe-title" tabindex="0">
               <table class="data-table min-w-[640px]">
                 <thead>
                   <tr>
-                    <th class="pl-5">{{ labelHeader(tipo) }}</th>
-                    <th class="num">Quantidade</th>
-                    <th class="num">Valor total</th>
-                    <th class="num">Objetivo</th>
-                    <th class="num">% alcançado</th>
-                    <th class="num">Faltante</th>
-                    <th class="num pr-5">% faltante</th>
+                    <th scope="col" class="pl-5 sticky left-0 bg-surface">{{ labelHeader(tipo) }}</th>
+                    <th scope="col" class="num">Quantidade</th>
+                    <th scope="col" class="num">Valor total</th>
+                    <th scope="col" class="num">Objetivo</th>
+                    <th scope="col" class="num">% alcançado</th>
+                    <th scope="col" class="num">Faltante</th>
+                    <th scope="col" class="num pr-5">% faltante</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="r in parsed" :key="r.i">
-                    <td class="pl-5 font-medium">{{ r.label }}</td>
+                    <th scope="row" class="row-label pl-5 sticky left-0 bg-surface">{{ r.label }}</th>
                     <td class="num">{{ r.quantidade }}</td>
                     <td class="num">{{ formatReal(r.total) }}</td>
                     <td class="num">{{ formatReal(r.meta) }}</td>

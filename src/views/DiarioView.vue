@@ -5,6 +5,7 @@ import AppShell from '../components/AppShell.vue'
 import FuncionariosField from '../components/FuncionariosField.vue'
 import Icon from '../components/Icon.vue'
 import SelectField from '../components/SelectField.vue'
+import { useSairSemSalvar } from '../composables/useSairSemSalvar'
 import { useToast } from '../composables/useToast'
 import { abrirSeletor } from '../lib/picker'
 import {
@@ -32,6 +33,7 @@ const fotos = ref<string[]>([])
 
 const loading = ref(false)
 const msg = ref('')
+const { marcarSalvo } = useSairSemSalvar(() => [os.value, apontamentos.value, obs.value, fotos.value, selecionados.value])
 
 const pad = (n: number) => String(n).padStart(2, '0')
 const isoDia = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -171,6 +173,8 @@ function reset() {
   fotos.value = []
   selecionados.value = []
   funcionarios.value = []
+  marcarSalvo()
+  window.scrollTo({ top: 0 })
 }
 </script>
 
@@ -254,7 +258,7 @@ function reset() {
               <img :src="`data:image/jpg;base64,${f}`" :alt="`Foto ${i + 1}`" class="h-full w-full rounded-xl object-cover" />
               <button
                 type="button"
-                class="absolute top-1 right-1 h-8 w-8 rounded-full bg-ink-900/75 text-white flex items-center justify-center"
+                class="absolute top-1 right-1 icon-btn h-9 w-9 after:-inset-1.5 bg-ink-900/80 text-white active:bg-ink-900"
                 :aria-label="`Remover foto ${i + 1}`"
                 @click="removerFoto(i)"
               >
@@ -273,7 +277,7 @@ function reset() {
         </div>
       </section>
 
-      <p v-if="msg" class="flex items-start gap-2 rounded-xl px-3.5 py-3 text-sm bg-danger-100 text-danger-700" role="alert">
+      <p v-if="msg" class="alert alert-danger" role="alert">
         <Icon name="alert" class="mt-px" />
         {{ msg }}
       </p>
@@ -281,7 +285,7 @@ function reset() {
 
     <template #footer>
       <p v-if="pendencias" class="meta text-center mb-2">{{ pendencias }}</p>
-      <button class="btn btn-primary w-full" :disabled="loading || !!pendencias" @click="lancar">
+      <button type="button" class="btn btn-primary w-full" :disabled="loading || !!pendencias" :aria-busy="loading" @click="lancar">
         {{ loading ? 'Enviando…' : 'Lançar diário' }}
       </button>
     </template>
@@ -311,8 +315,8 @@ function reset() {
   justify-content: center;
   gap: 0.25rem;
   border-radius: 0.75rem;
-  border: 1.5px dashed var(--color-ink-200);
-  color: var(--color-ink-500);
+  border: 1.5px dashed var(--color-field);
+  color: var(--color-ink-700);
   font-size: 13px;
   font-weight: 500;
   transition: background-color 0.15s;

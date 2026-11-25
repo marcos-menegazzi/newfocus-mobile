@@ -3,8 +3,11 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
+import Icon from '../components/Icon.vue'
+import LoadingState from '../components/LoadingState.vue'
 import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
+import { hojeISO } from '../lib/periodo'
 import { useToast } from '../composables/useToast'
 
 interface TituloRow {
@@ -23,6 +26,8 @@ const { notify } = useToast()
 const idtitulo = computed(() => Number(route.params.idtitulo))
 
 const titulo = ref<TituloRow | null>(null)
+const loading = ref(true)
+const vencido = computed(() => !!titulo.value?.vencimento && titulo.value.vencimento.slice(0, 10) < hojeISO())
 
 onMounted(async () => {
   try {
@@ -30,6 +35,8 @@ onMounted(async () => {
     titulo.value = rows[0] ?? null
   } catch (e) {
     notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
+  } finally {
+    loading.value = false
   }
 })
 </script>
@@ -37,8 +44,9 @@ onMounted(async () => {
 <template>
   <AppShell :title="titulo ? `Título ${titulo.numero}` : 'Título'" back>
     <div class="page">
-      <div v-if="!titulo" class="panel">
-        <EmptyState icon="receipt" label="Título não encontrado" />
+      <LoadingState v-if="loading" />
+      <div v-else-if="!titulo" class="panel">
+        <EmptyState icon="receipt" label="Título não encontrado" hint="Sincronize para atualizar os títulos deste cliente." />
       </div>
       <template v-else>
         <section class="panel px-4 py-4">
@@ -47,7 +55,13 @@ onMounted(async () => {
             <span class="text-sm text-ink-500">R$</span>
             <span class="figure text-[36px]">{{ formatReal(titulo.valor) }}</span>
           </p>
-          <p class="meta mt-1.5">Vence em {{ mudadata(titulo.vencimento) }}</p>
+          <p
+            class="mt-2 flex items-center gap-1.5 text-[13px] tabular-nums"
+            :class="vencido ? 'font-semibold text-danger-700' : 'text-ink-500'"
+          >
+            <Icon v-if="vencido" name="alert" :size="16" />
+            {{ vencido ? 'Venceu em' : 'Vence em' }} {{ mudadata(titulo.vencimento) }}
+          </p>
         </section>
         <dl class="list">
           <div class="flex justify-between gap-4 px-4 py-3.5">

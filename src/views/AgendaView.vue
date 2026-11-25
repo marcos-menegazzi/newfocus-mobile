@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
+import FieldError from '../components/FieldError.vue'
 import LoadingState from '../components/LoadingState.vue'
 import FilterButton from '../components/FilterButton.vue'
 import FilterChips, { type Chip } from '../components/FilterChips.vue'
@@ -14,6 +15,7 @@ import Sheet from '../components/Sheet.vue'
 import { query } from '../db/connection'
 import { mudadata } from '../lib/format'
 import { formatPeriodo, hojeISO, PRESETS_AGENDA, restoDaSemana } from '../lib/periodo'
+import { abrirSeletor } from '../lib/picker'
 import {
   avisosCliente,
   checkIn,
@@ -101,9 +103,9 @@ const grupos = computed(() => {
 })
 
 const STATUS = {
-  agendada: { label: 'Agendado', cls: 'bg-info-100 text-info-800', linha: '' },
-  visitada: { label: 'Visitado', cls: 'bg-success-50 text-success-800', linha: 'bg-success-50/60' },
-  'nao-visitada': { label: 'Não visitado', cls: 'bg-danger-100 text-danger-700', linha: 'bg-danger-100/50' },
+  agendada: { label: 'Agendado', icon: 'clock', cls: 'bg-info-100 text-info-800', linha: '' },
+  visitada: { label: 'Visitado', icon: 'check', cls: 'bg-success-50 text-success-800', linha: 'bg-success-50/60' },
+  'nao-visitada': { label: 'Não visitado', icon: 'x', cls: 'bg-danger-100 text-danger-700', linha: 'bg-danger-100/50' },
 }
 const status = (item: AgendaItem) => STATUS[situacaoVisita(item)]
 
@@ -112,6 +114,7 @@ const atdItem = ref<AgendaItem | null>(null)
 const atdForm = reactive({ atendido: 'S', codmotivo: '', motivo: '' })
 const atdTitulos = ref(false)
 const atdSaving = ref(false)
+const atdErro = ref('')
 
 async function abrirAtendimento(item: AgendaItem) {
   atdItem.value = item
@@ -119,13 +122,17 @@ async function abrirAtendimento(item: AgendaItem) {
   atdForm.codmotivo = item.codmotivo || ''
   atdForm.motivo = item.motivo || ''
   atdTitulos.value = false
+  atdErro.value = ''
   atd.value = true
   atdTitulos.value = await temTitulos(item.clifor)
 }
 
 async function confirmarAtendimento() {
   if (!atdItem.value) return
-  if (!atdForm.codmotivo) return notify('Informe o Motivo.')
+  if (!atdForm.codmotivo) {
+    atdErro.value = 'Escolha o motivo do resultado.'
+    return
+  }
   atdSaving.value = true
   try {
     await checkIn(atdItem.value, {
@@ -145,14 +152,20 @@ async function confirmarAtendimento() {
 
 const visita = ref(false)
 const visitaSaving = ref(false)
+const visitaErro = ref('')
 const nvForm = reactive({ clifor: 0, clienteNome: '', data: '', hora: '', dias: 0 })
 
 function abrirVisita() {
   Object.assign(nvForm, { clifor: 0, clienteNome: '', data: hojeISO(), hora: '', dias: 0 })
+  visitaErro.value = ''
   visita.value = true
 }
 
 async function salvarVisita() {
+  if (!nvForm.clifor) {
+    visitaErro.value = 'Escolha o cliente da visita.'
+    return
+  }
   visitaSaving.value = true
   try {
     await incluirVisita({ clifor: nvForm.clifor, data: nvForm.data, hora: nvForm.hora, dias: nvForm.dias })
@@ -200,6 +213,7 @@ async function escolherCliente(c: ClienteRow) {
   }
   nvForm.clifor = c.codigo
   nvForm.clienteNome = c.fantasia
+  visitaErro.value = ''
   const avisos = await avisosCliente(c.codigo)
   if (avisos.length) await avisar({ title: c.fantasia, message: avisos.join('\n\n') })
 }
@@ -226,7 +240,7 @@ const PERIODOS = [
       </button>
       <FilterChips :items="chips" @remove="removerFiltro" @open="abrirFiltros" />
 
-      <LoadingState v-if="loading && !searched" />
+      <LoadingState v-if="loading && !searched" :rows="5" label="Carregando agenda…" />
       <div v-else-if="searched && lista.length === 0" class="panel">
         <EmptyState icon="calendar" label="Nenhum compromisso no período" hint="Inclua uma visita ou escolha outro período." />
       </div>
@@ -236,19 +250,20 @@ const PERIODOS = [
           <ul class="list">
             <li v-for="{ item, i } in g.itens" :key="`${item.origem}-${item.idagenda ?? item.clifor}-${item.data_agenda}-${i}`">
               <button class="list-row flex items-start gap-3" :class="status(item).linha" @click="abrirAtendimento(item)">
-                <span class="w-12 shrink-0 pt-0.5 text-[15px] font-semibold tabular-nums" :class="item.hora ? 'text-ink-900' : 'text-ink-400'">
-                  {{ item.hora || '--:--' }}
+                <span class="w-12 shrink-0 pt-0.5 text-[15px] font-semibold tabular-nums" :class="item.hora ? 'text-ink-900' : 'font-normal text-ink-400'">
+                  <template v-if="item.hora">{{ item.hora }}</template><template v-else><span aria-hidden="true">--:--</span><span class="sr-only">Sem horário</span></template>
                 </span>
                 <span class="min-w-0 flex-1">
-                  <span class="block text-[15px] font-medium truncate">{{ item.fantasia }}</span>
+                  <span class="block text-[15px] font-medium leading-snug line-clamp-2">{{ item.fantasia }}</span>
                   <span v-if="item.endereco || item.cidade" class="meta flex items-start gap-1 mt-0.5">
                     <Icon name="pin" :size="14" class="mt-0.5" />
                     <span class="line-clamp-2">{{ [item.endereco, item.cidade].filter(Boolean).join(', ') }}</span>
                   </span>
+                  <span class="mt-2 inline-flex items-center gap-1 rounded-full pl-1.5 pr-2.5 min-h-6 text-xs font-semibold" :class="status(item).cls">
+                    <Icon :name="status(item).icon" :size="14" :stroke="2.2" /> {{ status(item).label }}
+                  </span>
                 </span>
-                <span class="inline-flex shrink-0 items-center rounded-full px-2.5 h-6 text-xs font-semibold" :class="status(item).cls">
-                  {{ status(item).label }}
-                </span>
+                <Icon name="chevron-right" class="mt-0.5 text-ink-400" />
               </button>
             </li>
           </ul>
@@ -264,12 +279,12 @@ const PERIODOS = [
           <div class="flex gap-2">
             <button type="button" class="input text-left flex items-center justify-between gap-2" @click="abrirPicker('filtro')">
               <span class="truncate" :class="draft.clienteNome ? '' : 'text-ink-400'">{{ draft.clienteNome || 'Todos os clientes' }}</span>
-              <Icon name="chevron-right" class="text-ink-400" />
+              <Icon name="chevron-down" class="text-ink-500" />
             </button>
             <button
               v-if="draft.clifor"
               type="button"
-              class="icon-btn h-12 w-12 border border-ink-200 rounded-[10px]"
+              class="icon-btn h-12 w-12 border border-field rounded-[10px]"
               aria-label="Remover cliente do filtro"
               @click="draft.clifor = null; draft.clienteNome = ''"
             >
@@ -288,7 +303,7 @@ const PERIODOS = [
 
     <Sheet :open="atd" title="Registrar atendimento" :subtitle="atdItem?.fantasia" @close="atd = false">
       <div class="space-y-4">
-        <p v-if="atdTitulos" class="flex items-start gap-2 rounded-xl bg-sun-100 text-sun-800 px-3.5 py-3 text-sm">
+        <p v-if="atdTitulos" class="alert alert-warn" role="status">
           <Icon name="alert" class="mt-px" />
           Este cliente tem títulos em aberto.
         </p>
@@ -301,8 +316,9 @@ const PERIODOS = [
           />
         </div>
         <label class="block">
-          <span class="label">Motivo</span>
-          <SelectField v-model="atdForm.codmotivo" :options="motivos.map((m) => ({ value: m.codigo, label: m.descricao }))" title="Selecionar motivo" placeholder="Selecione" empty="Nenhum motivo disponível" />
+          <span class="label required">Motivo</span>
+          <SelectField v-model="atdForm.codmotivo" :options="motivos.map((m) => ({ value: m.codigo, label: m.descricao }))" title="Selecionar motivo" placeholder="Selecione" empty="Nenhum motivo disponível" :aria-invalid="!!atdErro" aria-describedby="atd-erro" @change="atdErro = ''" />
+          <FieldError id="atd-erro" :msg="atdErro" />
         </label>
         <label class="block">
           <span class="label">Complemento</span>
@@ -310,7 +326,7 @@ const PERIODOS = [
         </label>
       </div>
       <template #footer>
-        <button class="btn btn-primary w-full" :disabled="atdSaving" @click="confirmarAtendimento">
+        <button class="btn btn-primary w-full" :disabled="atdSaving" :aria-busy="atdSaving" @click="confirmarAtendimento">
           {{ atdSaving ? 'Salvando…' : 'Registrar atendimento' }}
         </button>
       </template>
@@ -320,19 +336,20 @@ const PERIODOS = [
       <div class="space-y-4">
         <div>
           <span class="label">Cliente</span>
-          <button type="button" class="input text-left flex items-center justify-between gap-2" @click="abrirPicker('visita')">
+          <button type="button" class="input text-left flex items-center justify-between gap-2" aria-haspopup="dialog" :aria-invalid="!!visitaErro" aria-describedby="visita-erro" @click="abrirPicker('visita')">
             <span class="truncate" :class="nvForm.clienteNome ? '' : 'text-ink-400'">{{ nvForm.clienteNome || 'Selecionar cliente' }}</span>
-            <Icon name="chevron-right" class="text-ink-400" />
+            <Icon name="chevron-down" class="text-ink-500" />
           </button>
+          <FieldError id="visita-erro" :msg="visitaErro" />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <label class="block">
             <span class="label">Data</span>
-            <input v-model="nvForm.data" type="date" class="input" />
+            <input v-model="nvForm.data" type="date" class="input input-datetime" @click="abrirSeletor" />
           </label>
           <label class="block">
             <span class="label">Hora</span>
-            <input v-model="nvForm.hora" type="time" class="input" />
+            <input v-model="nvForm.hora" type="time" class="input input-datetime" @click="abrirSeletor" />
           </label>
         </div>
         <label class="block">
@@ -341,7 +358,7 @@ const PERIODOS = [
         </label>
       </div>
       <template #footer>
-        <button class="btn btn-primary w-full" :disabled="visitaSaving" @click="salvarVisita">Incluir visita</button>
+        <button class="btn btn-primary w-full" :disabled="visitaSaving" :aria-busy="visitaSaving" @click="salvarVisita">{{ visitaSaving ? 'Incluindo…' : 'Incluir visita' }}</button>
       </template>
     </Sheet>
 

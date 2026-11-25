@@ -11,6 +11,7 @@ import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
 import { periodoMes } from '../lib/periodo'
 import { indicadores } from '../services/indicadores'
+import { useAoVoltar } from '../composables/useAoVoltar'
 import { useLastSync } from '../composables/useLastSync'
 import { useToast } from '../composables/useToast'
 
@@ -38,7 +39,8 @@ const produtosPositivados = ref(0)
 const pendencia = ref(0)
 const ultimosPedidos = ref<PedidoRow[]>([])
 
-const mes = new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date())
+const nomeMes = () => new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date())
+const mes = ref(nomeMes())
 
 function pct(a: number, b: number): string {
   return b > 0 ? `${Math.round((a / b) * 100)}%` : '0%'
@@ -46,7 +48,8 @@ function pct(a: number, b: number): string {
 
 const vendasLabel = computed(() => `${vendasQtd.value} ${vendasQtd.value === 1 ? 'pedido faturado' : 'pedidos faturados'}`)
 
-onMounted(async () => {
+async function carregar() {
+  mes.value = nomeMes()
   try {
     const [ind, [pend]] = await Promise.all([
       indicadores(periodoMes()),
@@ -66,36 +69,40 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(carregar)
+useAoVoltar(carregar)
 </script>
 
 <template>
   <AppShell title="Início">
     <div class="page">
-      <section class="rounded-3xl on-navy bg-brand-600 text-cream px-5 pt-5 pb-6" aria-labelledby="hero-title">
+      <section class="rounded-3xl on-navy bg-brand-600 text-cream px-5 pt-5 pb-6" aria-labelledby="hero-title" :aria-busy="loading">
         <p id="hero-title" class="text-cream-dim text-[15px]">Vendas faturadas em {{ mes }}</p>
         <p class="mt-2 flex items-baseline gap-1.5">
           <span class="text-cream-dim text-xl font-medium">R$</span>
-          <span class="figure text-[44px] sm:text-[52px] break-all">{{ formatReal(vendasTotal) }}</span>
+          <span v-if="loading" class="skeleton h-11 w-44" aria-hidden="true" />
+          <span v-else class="figure text-[44px] sm:text-[52px] break-all">{{ formatReal(vendasTotal) }}</span>
         </p>
-        <p class="mt-1.5 text-cream-dim text-sm">{{ vendasLabel }}</p>
+        <p class="mt-1.5 text-cream-dim text-sm min-h-5">{{ loading ? 'Calculando…' : vendasLabel }}</p>
 
         <div class="mt-6 grid grid-cols-1 min-[420px]:grid-cols-2 gap-x-6 gap-y-5">
           <div>
             <div class="flex items-baseline justify-between gap-2 mb-2">
               <span class="text-sm">Clientes positivados</span>
-              <span class="text-sm font-semibold tabular-nums">{{ pct(clientesPositivados, totalClientes) }}</span>
+              <span class="text-sm font-semibold tabular-nums">{{ loading ? '' : pct(clientesPositivados, totalClientes) }}</span>
             </div>
             <Meter tone="dark" :value="clientesPositivados" :max="totalClientes" label="Clientes positivados no mês" />
-            <p class="mt-1.5 text-xs text-cream-dim tabular-nums">{{ clientesPositivados }} de {{ totalClientes }}</p>
+            <p class="mt-1.5 text-xs text-cream-dim tabular-nums min-h-4"><template v-if="!loading">{{ clientesPositivados }} de {{ totalClientes }}</template></p>
           </div>
           <div>
             <div class="flex items-baseline justify-between gap-2 mb-2">
               <span class="text-sm">Produtos positivados</span>
-              <span class="text-sm font-semibold tabular-nums">{{ pct(produtosPositivados, totalProdutos) }}</span>
+              <span class="text-sm font-semibold tabular-nums">{{ loading ? '' : pct(produtosPositivados, totalProdutos) }}</span>
             </div>
             <Meter tone="dark" :value="produtosPositivados" :max="totalProdutos" label="Produtos positivados no mês" />
-            <p class="mt-1.5 text-xs text-cream-dim tabular-nums">{{ produtosPositivados }} de {{ totalProdutos }}</p>
+            <p class="mt-1.5 text-xs text-cream-dim tabular-nums min-h-4"><template v-if="!loading">{{ produtosPositivados }} de {{ totalProdutos }}</template></p>
           </div>
         </div>
       </section>
@@ -103,7 +110,7 @@ onMounted(async () => {
       <RouterLink
         v-if="pendencia > 0"
         :to="{ name: 'sync' }"
-        class="flex items-center gap-3 rounded-2xl bg-sun-100 text-sun-800 px-4 py-3.5"
+        class="flex items-center gap-3 rounded-2xl bg-sun-100 text-sun-800 px-4 py-3.5 transition active:scale-[0.99]"
       >
         <Icon name="send" />
         <span class="flex-1 text-[15px]">
@@ -114,26 +121,26 @@ onMounted(async () => {
       </RouterLink>
 
       <div class="grid grid-cols-3 gap-2">
-        <RouterLink :to="{ name: 'pedido-novo' }" class="btn btn-primary flex-col gap-1 min-h-18 text-sm">
+        <RouterLink :to="{ name: 'pedido-novo' }" class="btn btn-primary flex-col gap-1 min-h-18 px-2 py-2 text-sm leading-tight text-center whitespace-normal">
           <Icon name="cart" :size="22" />
           Novo pedido
         </RouterLink>
-        <RouterLink :to="{ name: 'cliente-novo' }" class="btn btn-secondary flex-col gap-1 min-h-18 text-sm">
+        <RouterLink :to="{ name: 'cliente-novo' }" class="btn btn-secondary flex-col gap-1 min-h-18 px-2 py-2 text-sm leading-tight text-center whitespace-normal">
           <Icon name="user-plus" :size="22" />
           Novo cliente
         </RouterLink>
-        <RouterLink :to="{ name: 'agenda' }" class="btn btn-secondary flex-col gap-1 min-h-18 text-sm">
+        <RouterLink :to="{ name: 'agenda' }" class="btn btn-secondary flex-col gap-1 min-h-18 px-2 py-2 text-sm leading-tight text-center whitespace-normal">
           <Icon name="calendar" :size="22" />
           Agenda
         </RouterLink>
       </div>
 
       <section>
-        <div class="flex items-center justify-between mb-2 px-1">
+        <div class="flex items-center justify-between mb-1 px-1">
           <h2 class="section-title">Últimos pedidos</h2>
-          <RouterLink :to="{ name: 'pedidos' }" class="link py-1">Ver todos</RouterLink>
+          <RouterLink :to="{ name: 'pedidos' }" class="link inline-flex min-h-11 items-center">Ver todos</RouterLink>
         </div>
-        <LoadingState v-if="loading" />
+        <LoadingState v-if="loading" :rows="4" label="Carregando pedidos…" />
         <div v-else-if="ultimosPedidos.length === 0" class="panel">
           <EmptyState icon="orders" label="Nenhum pedido ainda" hint="Os pedidos que você criar aparecem aqui.">
             <RouterLink :to="{ name: 'pedido-novo' }" class="btn btn-tonal btn-sm">Criar pedido</RouterLink>
@@ -146,7 +153,7 @@ onMounted(async () => {
               class="list-row flex items-center justify-between gap-3"
             >
               <div class="min-w-0">
-                <p class="text-[15px] font-medium truncate">{{ pedido.fantasia }}</p>
+                <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ pedido.fantasia }}</p>
                 <p class="meta tabular-nums">Nº {{ pedido.numpedido }}, {{ mudadata(pedido.data) }}</p>
               </div>
               <div class="flex flex-col items-end gap-1 shrink-0">
@@ -158,7 +165,7 @@ onMounted(async () => {
         </ul>
       </section>
 
-      <p class="text-center text-xs text-ink-400">Última sincronização: {{ lastSync }}</p>
+      <p class="text-center text-[13px] text-ink-500">Última sincronização: {{ lastSync }}</p>
     </div>
   </AppShell>
 </template>

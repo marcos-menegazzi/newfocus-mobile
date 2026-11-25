@@ -46,7 +46,6 @@ src/
   stores/auth.ts            # login state, usuario row
   stores/sync.ts            # sync progress/queue
   stores/catalog.ts         # produtos/clientes/titulos caches
-  composables/useSwipe.ts   # edge-swipe gesture (left->right opens sidebar)
   components/               # AppShell, Sidebar, inputs, cards, modals
   views/                    # one route per screen
 ```
@@ -107,7 +106,8 @@ All via `executarComando` with `<tem:comando>P_xxxWEB:EXEC(...)</tem:comando>`,
 
 1. Splash → login (server URL, id, licenciada, user, senha)
 2. Home / dashboard
-3. Sidebar navigation (edge-swipe left→right to open)
+3. Bottom navigation (4 main destinations + Menu); the Menu drawer, on the right, holds the
+   secondary destinations. No edge swipe: it conflicts with the system back gesture (2026-11-25)
 4. Consulta clientes · Cadastro cliente
 5. Consulta produtos · Produto detail
 6. Novo pedido (core order builder) · Consulta pedidos · Venda

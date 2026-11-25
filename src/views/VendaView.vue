@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
+import LoadingState from '../components/LoadingState.vue'
 import { query } from '../db/connection'
 import { formatReal, mudadata } from '../lib/format'
 import { useToast } from '../composables/useToast'
@@ -41,6 +42,7 @@ const total = computed(() => {
 const fat = computed(() => route.query.fat === 'S')
 
 const itens = ref<ItemRow[]>([])
+const loading = ref(true)
 
 function condicoes(i: ItemRow): string {
   return [
@@ -58,6 +60,8 @@ GROUP BY h.produto, h.sequencia ORDER BY h.produto`
     itens.value = await query<ItemRow>(sql, [pedido.value])
   } catch (e) {
     notify(e instanceof Error ? e.message : 'Erro ao carregar', 'error')
+  } finally {
+    loading.value = false
   }
 })
 </script>
@@ -76,7 +80,8 @@ GROUP BY h.produto, h.sequencia ORDER BY h.produto`
         </div>
       </section>
 
-      <div v-if="itens.length === 0" class="panel">
+      <LoadingState v-if="loading" :rows="4" label="Carregando itens…" />
+      <div v-else-if="itens.length === 0" class="panel">
         <EmptyState icon="package" label="Nenhum item nesta venda" />
       </div>
       <section v-else>

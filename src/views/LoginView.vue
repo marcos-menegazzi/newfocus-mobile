@@ -34,10 +34,10 @@ async function submit() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-cream flex flex-col">
+  <div class="min-h-dvh bg-cream flex flex-col">
     <div class="sticky top-0 z-10 shrink-0 bg-brand-600 safe-top" aria-hidden="true" />
-    <div class="pt-12 px-6 pb-6 flex flex-col items-center text-center">
-      <Logo variant="full" :height="148" />
+    <div class="pt-8 px-6 pb-5 flex flex-col items-center text-center">
+      <Logo variant="full" :height="128" />
       <p class="mt-4 text-ink-500 text-[15px]">Pedidos, clientes e metas no seu bolso.</p>
     </div>
 
@@ -68,32 +68,32 @@ async function submit() {
         </label>
         <label class="block">
           <span class="label">Senha</span>
-          <div class="relative">
+          <span class="relative block">
             <input v-model="form.senha" :type="showSenha ? 'text' : 'password'" autocomplete="current-password" class="input pr-12" required />
             <button
               type="button"
-              class="icon-btn absolute right-1 top-1/2 -translate-y-1/2 text-ink-500"
+              class="icon-btn absolute right-0.5 top-1/2 -translate-y-1/2 text-ink-500"
               :aria-label="showSenha ? 'Ocultar senha' : 'Mostrar senha'"
               @click="showSenha = !showSenha"
             >
               <Icon :name="showSenha ? 'eye-off' : 'eye'" />
             </button>
-          </div>
+          </span>
         </label>
       </fieldset>
 
-      <p v-if="error" class="flex items-start gap-2 rounded-xl bg-danger-100 text-danger-700 px-3.5 py-3 text-sm" role="alert">
+      <p v-if="error" class="alert alert-danger" role="alert">
         <Icon name="alert" class="mt-px" />
-        <span>Não foi possível entrar: {{ error }}. Confira os dados e tente de novo.</span>
+        <span>Não foi possível entrar: {{ error.replace(/[.\s]+$/, '') }}. Confira os dados e tente de novo.</span>
       </p>
 
-      <button type="submit" :disabled="loading" class="btn btn-primary w-full">
+      <button type="submit" :disabled="loading" :aria-busy="loading" class="btn btn-primary w-full">
         {{ loading ? 'Entrando…' : 'Entrar' }}
       </button>
 
-      <p class="text-center text-sm text-ink-500">
+      <p class="flex flex-wrap items-center justify-center gap-x-1.5 text-sm text-ink-500">
         Esqueceu a senha?
-        <a class="link" href="http://www.newfocus.com.br/index.php/fale-conosco-049-3521-3880" target="_blank" rel="noopener">Fale conosco</a>
+        <a class="link inline-flex min-h-11 items-center" href="http://www.newfocus.com.br/index.php/fale-conosco-049-3521-3880" target="_blank" rel="noopener">Fale conosco</a>
       </p>
     </form>
   </div>

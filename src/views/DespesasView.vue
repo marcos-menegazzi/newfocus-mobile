@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import AppShell from '../components/AppShell.vue'
+import FieldError from '../components/FieldError.vue'
 import FuncionariosField from '../components/FuncionariosField.vue'
 import Icon from '../components/Icon.vue'
 import MoneyInput from '../components/MoneyInput.vue'
 import SelectField from '../components/SelectField.vue'
 import { abrirSeletor } from '../lib/picker'
+import { useSairSemSalvar } from '../composables/useSairSemSalvar'
+import { useToast } from '../composables/useToast'
 import {
   lancarDespesa,
   listarContas,
@@ -31,7 +34,22 @@ const foto = ref<string | null>(null)
 
 const loading = ref(false)
 const msg = ref('')
-const sucesso = ref(false)
+const tentou = ref(false)
+const { notify } = useToast()
+const { marcarSalvo } = useSairSemSalvar(() => [os.value, conta.value, valor.value, obs.value, foto.value, selecionados.value])
+
+// Só depois da primeira tentativa, e some assim que o campo é preenchido.
+const erros = computed(() => {
+  if (!tentou.value) return {} as Record<string, string>
+  const e: Record<string, string> = {}
+  if (!os.value || Number(os.value) < 1) e.os = 'Escolha a ordem de serviço.'
+  if (!conta.value) e.conta = 'Escolha a conta financeira.'
+  if (!data.value) e.data = 'Informe a data.'
+  if (!valor.value || valor.value <= 0) e.valor = 'Informe o valor.'
+  // Sem OS o campo de funcionários nem abre: o erro que importa é o da OS.
+  if (os.value && selecionados.value.length < 1) e.funcionarios = 'Adicione ao menos um funcionário.'
+  return e
+})
 
 function dd(n: number): string {
   return String(n).padStart(2, '0')
@@ -44,7 +62,11 @@ function hoje(): string {
 
 onMounted(async () => {
   data.value = hoje()
-  ;[ordens.value, contas.value] = await Promise.all([listarOs(), listarContas()])
+  try {
+    ;[ordens.value, contas.value] = await Promise.all([listarOs(), listarContas()])
+  } catch {
+    msg.value = 'Não foi possível carregar as OS. As despesas são lançadas online: verifique a internet e abra a tela de novo.'
+  }
 })
 
 async function onOsChange() {
@@ -57,7 +79,6 @@ async function onOsChange() {
     const lista = await listarFuncionarios(alvo)
     if (os.value === alvo) funcionarios.value = lista
   } catch {
-    sucesso.value = false
     msg.value = 'Não foi possível carregar os funcionários da OS. Verifique a internet e escolha a OS de novo.'
   } finally {
     if (os.value === alvo) carregandoFunc.value = false
@@ -65,23 +86,34 @@ async function onOsChange() {
 }
 
 async function capturar() {
-  const photo = await Camera.getPhoto({ resultType: CameraResultType.Base64, source: CameraSource.Camera })
-  foto.value = photo.base64String ?? null
+  await fotografar(CameraSource.Camera)
 }
 
 async function escolher() {
-  const photo = await Camera.getPhoto({ resultType: CameraResultType.Base64, source: CameraSource.Photos })
-  foto.value = photo.base64String ?? null
+  await fotografar(CameraSource.Photos)
+}
+
+async function fotografar(source: CameraSource) {
+  try {
+    const photo = await Camera.getPhoto({ resultType: CameraResultType.Base64, source })
+    foto.value = photo.base64String ?? foto.value
+  } catch {
+    // Câmera ou galeria fechada sem escolher foto.
+  }
 }
 
 async function apontar() {
   msg.value = ''
-  sucesso.value = false
-  if (!os.value || Number(os.value) < 1) return (msg.value = 'OS deve ser selecionada')
-  if (!conta.value) return (msg.value = 'Conta Financeira deve ser informada')
-  if (!data.value) return (msg.value = 'Data deve ser informada')
-  if (!valor.value || valor.value <= 0) return (msg.value = 'Valor deve ser informado')
-  if (selecionados.value.length < 1) return (msg.value = 'Deve ser informado ao menos um funcionário')
+  tentou.value = true
+  if (Object.keys(erros.value).length) {
+    await nextTick()
+    const campo = document.querySelector<HTMLElement>('[aria-invalid="true"], [data-invalido]')
+    campo?.scrollIntoView?.({ block: 'center' })
+    campo?.focus({ preventScroll: true })
+    return
+  }
+  // A validação acima garante o valor.
+  const total = valor.value ?? 0
 
   loading.value = true
   try {
@@ -94,14 +126,14 @@ async function apontar() {
       os: os.value,
       conta: conta.value,
       data: data.value,
-      valor: valor.value,
+      valor: total,
       obs: obs.value,
       funcionarios: selecionados.value.map((f) => f.codigo),
       image,
     })
-    msg.value = r.msg
-    sucesso.value = r.ok
-    if (r.ok) reset()
+    if (!r.ok) throw new Error(r.msg || 'O servidor não aceitou a despesa.')
+    notify(r.msg || 'Despesa lançada', 'success')
+    reset()
   } catch (e) {
     msg.value = e instanceof Error ? e.message : 'Erro ao lançar despesa'
   } finally {
@@ -118,6 +150,9 @@ function reset() {
   foto.value = null
   selecionados.value = []
   funcionarios.value = []
+  tentou.value = false
+  marcarSalvo()
+  window.scrollTo({ top: 0 })
 }
 </script>
 
@@ -126,24 +161,31 @@ function reset() {
     <div class="page">
       <section class="panel p-4 space-y-4">
         <label class="block">
-          <span class="label">Ordem de serviço</span>
-          <SelectField v-model="os" :options="ordens.map((o) => ({ value: o.codigo, label: o.descricao }))" title="Selecionar OS" placeholder="Selecione uma OS" empty="Nenhuma OS disponível" @change="onOsChange" />
+          <span class="label required">Ordem de serviço</span>
+          <SelectField :aria-invalid="!!erros.os" aria-describedby="erro-os" v-model="os" :options="ordens.map((o) => ({ value: o.codigo, label: o.descricao }))" title="Selecionar OS" placeholder="Selecione uma OS" empty="Nenhuma OS disponível" @change="onOsChange" />
+          <FieldError id="erro-os" :msg="erros.os" />
         </label>
         <label class="block">
-          <span class="label">Conta financeira</span>
-          <SelectField v-model="conta" :options="contas.map((c) => ({ value: c.codigo, label: c.descricao }))" title="Selecionar conta financeira" placeholder="Selecione uma conta" empty="Nenhuma conta disponível" />
+          <span class="label required">Conta financeira</span>
+          <SelectField :aria-invalid="!!erros.conta" aria-describedby="erro-conta" v-model="conta" :options="contas.map((c) => ({ value: c.codigo, label: c.descricao }))" title="Selecionar conta financeira" placeholder="Selecione uma conta" empty="Nenhuma conta disponível" />
+          <FieldError id="erro-conta" :msg="erros.conta" />
         </label>
         <div class="grid grid-cols-2 gap-3">
           <label class="block min-w-0">
-            <span class="label">Data</span>
-            <input v-model="data" type="date" class="input input-datetime min-w-0" @click="abrirSeletor" />
+            <span class="label required">Data</span>
+            <input v-model="data" type="date" class="input input-datetime min-w-0" :aria-invalid="!!erros.data" aria-describedby="erro-data" @click="abrirSeletor" />
+            <FieldError id="erro-data" :msg="erros.data" />
           </label>
           <label class="block min-w-0">
-            <span class="label">Valor</span>
-            <MoneyInput v-model="valor" class="min-w-0" />
+            <span class="label required">Valor</span>
+            <MoneyInput v-model="valor" class="min-w-0" :aria-invalid="!!erros.valor" aria-describedby="erro-valor" />
+            <FieldError id="erro-valor" :msg="erros.valor" />
           </label>
         </div>
-        <FuncionariosField v-model="selecionados" :funcionarios="funcionarios" :disabled="!os" :loading="carregandoFunc" />
+        <div :data-invalido="erros.funcionarios ? '' : undefined" tabindex="-1" class="outline-none">
+          <FuncionariosField v-model="selecionados" :funcionarios="funcionarios" :disabled="!os" :loading="carregandoFunc" />
+          <FieldError :msg="erros.funcionarios" />
+        </div>
         <label class="block">
           <span class="label">Observações</span>
           <textarea v-model="obs" rows="3" class="input" />
@@ -154,7 +196,7 @@ function reset() {
         <h2 class="section-title">Foto da nota fiscal</h2>
         <div v-if="foto" class="mt-3 relative">
           <img :src="`data:image/jpg;base64,${foto}`" alt="Foto da nota fiscal" class="w-full max-h-64 object-contain rounded-xl bg-ink-50" />
-          <button type="button" class="absolute top-2 right-2 icon-btn bg-ink-900/70 text-white" aria-label="Remover foto" @click="foto = null">
+          <button type="button" class="absolute top-2 right-2 icon-btn bg-ink-900/80 text-white active:bg-ink-900" aria-label="Remover foto" @click="foto = null">
             <Icon name="x" />
           </button>
         </div>
@@ -164,19 +206,14 @@ function reset() {
         </div>
       </section>
 
-      <p
-        v-if="msg"
-        class="flex items-start gap-2 rounded-xl px-3.5 py-3 text-sm"
-        :class="sucesso ? 'bg-success-50 text-success-800' : 'bg-danger-100 text-danger-700'"
-        role="alert"
-      >
-        <Icon :name="sucesso ? 'check-circle' : 'alert'" class="mt-px" />
+      <p v-if="msg" class="alert alert-danger" role="alert">
+        <Icon name="alert" class="mt-px" />
         {{ msg }}
       </p>
     </div>
 
     <template #footer>
-      <button class="btn btn-primary w-full" :disabled="loading" @click="apontar">
+      <button type="button" class="btn btn-primary w-full" :disabled="loading" :aria-busy="loading" @click="apontar">
         {{ loading ? 'Enviando…' : 'Lançar despesa' }}
       </button>
     </template>

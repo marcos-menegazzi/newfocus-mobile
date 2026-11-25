@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { App } from '@capacitor/app'
-import { Capacitor } from '@capacitor/core'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
+import FieldError from '../components/FieldError.vue'
 import Icon from '../components/Icon.vue'
+import LoadingState from '../components/LoadingState.vue'
 import SelectField from '../components/SelectField.vue'
 import SearchField from '../components/SearchField.vue'
 import Segmented from '../components/Segmented.vue'
@@ -38,6 +38,9 @@ import { pushClientes } from '../services/sync/clientes'
 import { pushPedidos } from '../services/sync/pedidos'
 import { useAuthStore } from '../stores/auth'
 import { usePedidoStore } from '../stores/pedido'
+import { useBackButton } from '../composables/useBackButton'
+import { useListaProgressiva } from '../composables/useListaProgressiva'
+import { useOcupado } from '../composables/useOcupado'
 import { useToast } from '../composables/useToast'
 import { useConfirm } from '../composables/useConfirm'
 
@@ -47,6 +50,7 @@ const auth = useAuthStore()
 const store = usePedidoStore()
 const { notify } = useToast()
 const { confirmar, avisar } = useConfirm()
+const { ocupado, executar } = useOcupado()
 
 const STEPS = [
   { label: 'Cliente', next: 'Continuar para produtos' },
@@ -109,6 +113,7 @@ const CLIENT_FIELDS: Record<string, string> = {
 const clienteCampo = ref('fantasia')
 const clienteBusca = ref('')
 const clientes = ref<any[]>([])
+const { visiveis: clientesVisiveis, temMais: temMaisClientes } = useListaProgressiva(clientes)
 
 const showCliente = ref(false)
 const showOperacao = ref(false)
@@ -122,6 +127,8 @@ const operacaoLabel = computed(() => store.cabecalho.operacao || 'Selecionar ope
 
 const isEdit = computed(() => !!store.cabecalho.numpedido)
 const titulo = computed(() => (store.cabecalho.numpedido ? `Pedido ${store.cabecalho.numpedido}` : 'Novo pedido'))
+// Na barra, ao lado da situação, o número precisa caber inteiro.
+const tituloBarra = computed(() => (store.cabecalho.numpedido ? `Nº ${store.cabecalho.numpedido}` : 'Novo pedido'))
 const aberto = computed(() => !store.cabecalho.numpedido || store.pedstatus === 'A')
 // Com itens no pedido, trocar empresa, cliente ou condição mudaria o que já foi vendido.
 const travado = computed(() => !aberto.value || itens.value.length > 0)
@@ -162,6 +169,8 @@ const condicoesRevisao = computed(() => {
 
 // Motivo que impede abrir a etapa i (null = pode abrir).
 function bloqueio(i: number): string | null {
+  // Fora de aberto o pedido é só consulta: as etapas não dependem mais da validação.
+  if (!aberto.value) return null
   if (i >= 1 && !headerOk.value) return validarCabecalho()
   if (i >= 2 && itens.value.length === 0) return 'Adicione ao menos um produto ao pedido.'
   return null
@@ -171,7 +180,8 @@ async function goTo(i: number) {
   if (mudandoEtapa || i === step.value || i < 0 || i >= STEPS.length) return
   const err = i > step.value ? bloqueio(i) : null
   if (err) {
-    notify(err)
+    if (step.value === 0 && !headerOk.value) await mostrarPendencia()
+    else notify(err)
     return
   }
   mudandoEtapa = true
@@ -182,6 +192,7 @@ async function goTo(i: number) {
     else await persistTotal()
     await salvarEtapa(i)
     step.value = i
+    tentouAvancar.value = false
     window.scrollTo({ top: 0 })
   } catch (e) {
     notify(msg(e), 'error')
@@ -192,7 +203,7 @@ async function goTo(i: number) {
 
 async function salvarEtapa(etapa: number) {
   const pedido = store.cabecalho
-  if (!pedido.numpedido) return
+  if (!pedido.numpedido || !aberto.value) return
   await run('UPDATE ped SET etapa = ? WHERE numpedido = ?', [etapa, pedido.numpedido])
   await saveWebDb()
   pedido.etapa = etapa
@@ -408,17 +419,42 @@ function aplicarCarga(row: any) {
   showCarga.value = false
 }
 
-function validarCabecalho(): string | null {
+type CampoCabecalho = 'data' | 'empresa' | 'cliente' | 'operacao' | 'condicao' | 'tabela' | 'carga' | 'comissao'
+
+// O que falta no cabeçalho: o campo e a mensagem.
+function pendenciaCabecalho(): { campo: CampoCabecalho; msg: string } | null {
   const c = store.cabecalho
-  if (!c.data) return 'Informe a Data do Pedido.'
-  if (!c.empresa) return 'Selecione uma Empresa.'
-  if (!c.clifor) return 'Selecione um Cliente.'
-  if (!c.operacao) return 'Selecione uma Operação.'
-  if (!c.condpag) return 'Selecione uma Condição de Pagamento.'
-  if (!c.tabela) return 'Selecione uma Tabela de Preço.'
-  if (!c.carga) return 'Selecione uma Carga.'
-  if (!c.comissao) return 'Selecione uma Tabela de Comissão.'
+  if (!c.data) return { campo: 'data', msg: 'Informe a Data do Pedido.' }
+  if (!c.empresa) return { campo: 'empresa', msg: 'Selecione uma Empresa.' }
+  if (!c.clifor) return { campo: 'cliente', msg: 'Selecione um Cliente.' }
+  if (!c.operacao) return { campo: 'operacao', msg: 'Selecione uma Operação.' }
+  if (!c.condpag) return { campo: 'condicao', msg: 'Selecione uma Condição de Pagamento.' }
+  if (!c.tabela) return { campo: 'tabela', msg: 'Selecione uma Tabela de Preço.' }
+  if (!c.carga) return { campo: 'carga', msg: 'Selecione uma Carga.' }
+  if (!c.comissao) return { campo: 'comissao', msg: 'Selecione uma Tabela de Comissão.' }
   return null
+}
+
+function validarCabecalho(): string | null {
+  return pendenciaCabecalho()?.msg ?? null
+}
+
+// Depois de tentar avançar, o campo que falta fica marcado até ser preenchido.
+const tentouAvancar = ref(false)
+const erroCampo = computed(() => (tentouAvancar.value && aberto.value ? pendenciaCabecalho() : null))
+const erroDe = (campo: CampoCabecalho) => (erroCampo.value?.campo === campo ? erroCampo.value.msg : null)
+const attrsCampo = (campo: CampoCabecalho) => ({
+  'data-campo': campo,
+  'aria-invalid': erroDe(campo) ? ('true' as const) : undefined,
+  'aria-describedby': erroDe(campo) ? `erro-${campo}` : undefined,
+})
+
+async function mostrarPendencia() {
+  tentouAvancar.value = true
+  await nextTick()
+  const el = document.querySelector<HTMLElement>(`[data-campo="${erroCampo.value?.campo}"]`)
+  el?.scrollIntoView?.({ block: 'center' })
+  el?.focus({ preventScroll: true })
 }
 
 async function ensureNumpedido(): Promise<string | null> {
@@ -560,7 +596,7 @@ watch(
 
 watch(step, (atual, anterior) => {
   if (atual >= 2) void refreshParcelas()
-  if (atual === 1 && anterior !== 1 && store.cabecalho.tabela) void buscarProdutos()
+  if (atual === 1 && anterior !== 1 && aberto.value && store.cabecalho.tabela) void buscarProdutos()
 })
 
 async function quickAdd(p: any) {
@@ -820,6 +856,8 @@ async function gravarParcela() {
 }
 
 async function removerParcela(id: number) {
+  const ok = await confirmar({ title: 'Excluir esta parcela?', confirmLabel: 'Excluir', danger: true })
+  if (!ok) return
   await excluirParcela(id)
   await refreshParcelas()
 }
@@ -967,6 +1005,7 @@ async function finalizarPedido(): Promise<boolean> {
     })
     store.pedstatus = 'F'
     store.cabecalho.status = 'F'
+    step.value = STEPS.length - 1
     await refreshItens()
     notify('Pedido finalizado', 'success')
     return true
@@ -1045,7 +1084,8 @@ async function reenviar() {
 
 function acao(fn: () => unknown) {
   showAcoes.value = false
-  fn()
+  // Uma ação por vez: nota e boleto não saem em dobro por toque repetido.
+  void executar('acao', fn)
 }
 
 // Ações que não se aplicam à situação do pedido aparecem desabilitadas, com o motivo.
@@ -1077,8 +1117,10 @@ const acoes = computed(() => {
 // --- Termo / saldos ---
 const showSucata = ref(false)
 const sucataRows = ref<SaldoSucata[]>([])
+const sucataLoading = ref(false)
 const showSaldos = ref(false)
 const saldosRows = ref<SaldoFinanceiro[]>([])
+const saldosLoading = ref(false)
 
 async function gerarTermo() {
   const lancto = store.cabecalho.lancto
@@ -1102,10 +1144,13 @@ async function abrirSucata() {
   }
   showSucata.value = true
   sucataRows.value = []
+  sucataLoading.value = true
   try {
     sucataRows.value = await saldoSucata(codlic, cli)
   } catch (e) {
     notify(msg(e), 'error')
+  } finally {
+    sucataLoading.value = false
   }
 }
 
@@ -1117,10 +1162,13 @@ async function abrirSaldos() {
   }
   showSaldos.value = true
   saldosRows.value = []
+  saldosLoading.value = true
   try {
     saldosRows.value = await saldosFinanceiro(cli)
   } catch (e) {
     notify(msg(e), 'error')
+  } finally {
+    saldosLoading.value = false
   }
 }
 
@@ -1156,32 +1204,15 @@ async function duplicar() {
   }
 }
 
-let listenerVoltarAndroid: ReturnType<typeof App.addListener> | undefined
-
-onMounted(() => {
-  if (Capacitor.getPlatform() !== 'android') return
-  listenerVoltarAndroid = App.addListener('backButton', async ({ canGoBack }) => {
-    if (mudandoEtapa) return
-    if (step.value > 0) {
-      const etapaAnterior = step.value - 1
-      await goTo(etapaAnterior)
-      if (step.value === etapaAnterior) {
-        showAcoes.value = false
-        modal.open = false
-      }
-      return
-    }
-    if (canGoBack) router.back()
-    else await router.push({ name: auth.homeRoute })
-  })
-  void listenerVoltarAndroid.catch((e) => console.error('Falha ao ouvir o botão Voltar do Android', e))
-})
-
-onBeforeUnmount(() => {
-  void listenerVoltarAndroid?.then(
-    (listener) => listener.remove().catch((e) => console.error('Falha ao remover o listener do Android', e)),
-    () => {},
-  )
+// Uma folha aberta por cima fecha antes; aqui só chega o Voltar da própria tela.
+useBackButton(async (canGoBack) => {
+  if (mudandoEtapa) return
+  if (step.value > 0) {
+    await goTo(step.value - 1)
+    return
+  }
+  if (canGoBack) router.back()
+  else await router.push({ name: auth.homeRoute })
 })
 
 onMounted(async () => {
@@ -1207,6 +1238,7 @@ function rotaNumpedido(): string {
 
 async function carregarRota() {
   const n = rotaNumpedido()
+  tentouAvancar.value = false
   prodGrupo.value = ''
   Object.assign(cliente, { id: 0, codigo: 0, fantasia: '', razao: '', cnpj: '', limcred: 0, credito: 0, saldo: 0 })
   limparProdutos()
@@ -1235,8 +1267,12 @@ async function carregarRota() {
     step.value = 0
     return
   }
+  if (!aberto.value) {
+    step.value = STEPS.length - 1
+    return
+  }
   const etapaSalva = typeof etapa === 'number' && Number.isInteger(etapa) && etapa >= 0 && etapa < STEPS.length
-  const etapaInicial = etapaSalva ? etapa : store.pedstatus === 'A' && itens.value.length === 0 ? 1 : 3
+  const etapaInicial = etapaSalva ? etapa : itens.value.length === 0 ? 1 : 3
   if (step.value === 1 && etapaInicial === 1 && store.cabecalho.tabela) void buscarProdutos()
   step.value = etapaInicial
   if (!etapaSalva) {
@@ -1261,7 +1297,7 @@ watch(
 </script>
 
 <template>
-  <AppShell :title="titulo" :subtitle="cliente.fantasia || cliente.razao || undefined" back>
+  <AppShell :title="tituloBarra" :subtitle="cliente.fantasia || cliente.razao || undefined" back>
     <template #actions>
       <StatusChip v-if="store.cabecalho.numpedido" :status="store.pedstatus" :itens="itens.length" />
       <button v-if="store.cabecalho.numpedido" class="icon-btn" aria-label="Mais ações" @click="showAcoes = true">
@@ -1270,21 +1306,21 @@ watch(
     </template>
 
     <nav
-      class="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-10 bg-cream/95 backdrop-blur-md border-b border-ink-200 px-4 pt-2 pb-3"
+      class="sticky [@media(max-height:480px)]:static top-[calc(3.5rem+env(safe-area-inset-top))] z-10 bg-cream border-b border-ink-200 px-4"
       aria-label="Etapas do pedido"
     >
-      <ol class="grid grid-cols-4 gap-1.5">
+      <ol class="grid grid-cols-[0.9fr_1.05fr_1.25fr_1fr] gap-1.5">
         <li v-for="(s, i) in STEPS" :key="s.label">
           <button
             type="button"
-            class="w-full text-left pt-1 pb-0.5 disabled:cursor-not-allowed"
+            class="w-full min-h-13 py-2 text-left disabled:cursor-not-allowed"
             :aria-current="step === i ? 'step' : undefined"
             :disabled="i > step && !!bloqueio(i)"
             @click="goTo(i)"
           >
             <span class="block h-1 rounded-full" :class="i === step ? 'bg-accent-500' : i < step ? 'bg-brand-600' : 'bg-ink-200'" />
             <span
-              class="mt-1.5 flex items-center gap-1 text-xs whitespace-nowrap"
+              class="mt-1.5 flex items-center gap-1 text-xs whitespace-nowrap max-[359px]:text-[11px]"
               :class="step === i ? 'font-semibold text-brand-600' : i < step ? 'text-ink-700' : 'text-ink-500'"
             >
               <Icon v-if="i < step" name="check" :size="13" :stroke="2.6" class="text-brand-600" />
@@ -1297,26 +1333,27 @@ watch(
     </nav>
 
     <div class="page">
+      <LoadingState v-if="ocupado === 'acao'" class="panel py-4!" label="Processando…" />
       <p
         v-if="store.cabecalho.numpedido && store.pedstatus !== 'A'"
-        class="flex items-start gap-2 rounded-xl bg-info-100 text-info-800 px-3.5 py-3 text-sm"
+        class="alert alert-info"
       >
         <Icon name="info" class="mt-px" />
         <span>
           Este pedido está {{ STATUS_LABEL[store.pedstatus] ?? store.pedstatus }}.
-          <template v-if="store.pedstatus === 'F'">Para alterar itens e valores, use Reabrir em Mais ações.</template>
+          <template v-if="store.pedstatus === 'F'">Para alterar, use Reabrir em Mais ações.</template>
         </span>
       </p>
 
       <!-- 1. Cliente e condições -->
       <template v-if="step === 0">
         <div>
-          <h2 class="text-[22px] font-semibold tracking-tight">Para quem é o pedido?</h2>
+          <h2 class="text-[22px] font-semibold">Para quem é o pedido?</h2>
           <p class="meta mt-1">{{ isEdit ? 'Confira os dados do pedido.' : 'As condições vêm do último pedido e se ajustam ao cliente escolhido. Confira antes de continuar.' }}</p>
         </div>
 
         <section class="panel p-4 space-y-4">
-          <button type="button" class="input text-left flex items-center gap-3 py-3" data-campo="cliente" :disabled="travado" @click="abrirCliente">
+          <button type="button" class="input text-left flex items-center gap-3 py-3" v-bind="attrsCampo('cliente')" aria-haspopup="dialog" :disabled="travado" @click="abrirCliente">
             <span class="h-10 w-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
               <Icon name="users" />
             </span>
@@ -1325,8 +1362,9 @@ watch(
               <span v-else class="block text-ink-400">Selecionar cliente</span>
               <span v-if="cliente.codigo" class="block meta truncate">Crédito disponível R$ {{ formatReal(credito) }}</span>
             </span>
-            <span class="link">{{ cliente.codigo ? 'Trocar' : 'Escolher' }}</span>
+            <span v-if="aberto && !travado" class="link">{{ cliente.codigo ? 'Trocar' : 'Escolher' }}</span>
           </button>
+          <FieldError id="erro-cliente" :msg="erroDe('cliente')" />
           <template v-if="cliente.codigo">
             <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <div><dt class="meta text-xs">Código</dt><dd class="font-medium tabular-nums">{{ cliente.codigo }}</dd></div>
@@ -1351,86 +1389,96 @@ watch(
           </template>
         </section>
 
-        <section class="panel p-4 space-y-4">
-          <div>
-            <span class="label">Tipo</span>
-            <Segmented
-              :model-value="store.cabecalho.tipo"
-              @update:model-value="trocarTipo"
-              :options="[{ value: 'S', label: 'Saída' }, { value: 'E', label: 'Entrada' }, { value: 'O', label: 'Orçamento' }]"
-              label="Tipo do pedido"
-            />
-          </div>
-          <div class="grid grid-cols-2 gap-3">
+        <fieldset class="min-w-0 space-y-4" :disabled="!aberto">
+          <section class="panel p-4 space-y-4">
+            <div>
+              <span class="label">Tipo</span>
+              <Segmented
+                :model-value="store.cabecalho.tipo"
+                @update:model-value="trocarTipo"
+                :options="[{ value: 'S', label: 'Saída' }, { value: 'E', label: 'Entrada' }, { value: 'O', label: 'Orçamento' }]"
+                label="Tipo do pedido"
+              />
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block">
+                <span class="label required">Data</span>
+                <input v-bind="attrsCampo('data')" v-model="store.cabecalho.data" type="date" class="input" />
+                <FieldError id="erro-data" :msg="erroDe('data')" />
+              </label>
+              <label class="block">
+                <span class="label">Nº da nota</span>
+                <input v-model="store.cabecalho.numero" type="text" inputmode="numeric" class="input" />
+              </label>
+            </div>
             <label class="block">
-              <span class="label">Data</span>
-              <input v-model="store.cabecalho.data" type="date" class="input" />
+              <span class="label required">Empresa</span>
+              <SelectField v-model="store.cabecalho.empresa" :options="empresas.map((e) => ({ value: e.empresa, label: e.fantasia }))" title="Selecionar empresa" placeholder="Selecione a empresa" v-bind="attrsCampo('empresa')" :disabled="travado" @change="trocarEmpresa" />
+              <FieldError id="erro-empresa" :msg="erroDe('empresa')" />
             </label>
             <label class="block">
-              <span class="label">Nº da nota</span>
-              <input v-model="store.cabecalho.numero" type="text" inputmode="numeric" class="input" />
+              <span class="label">Vendedor</span>
+              <SelectField v-model="store.cabecalho.vendedor" :options="vendedores.map((v) => ({ value: v.codigo, label: v.nome }))" title="Selecionar vendedor" placeholder="Selecione o vendedor" />
             </label>
-          </div>
-          <label class="block">
-            <span class="label">Empresa</span>
-            <SelectField v-model="store.cabecalho.empresa" :options="empresas.map((e) => ({ value: e.empresa, label: e.fantasia }))" title="Selecionar empresa" placeholder="Selecione a empresa" data-campo="empresa" :disabled="travado" @change="trocarEmpresa" />
-          </label>
-          <label class="block">
-            <span class="label">Vendedor</span>
-            <SelectField v-model="store.cabecalho.vendedor" :options="vendedores.map((v) => ({ value: v.codigo, label: v.nome }))" title="Selecionar vendedor" placeholder="Selecione o vendedor" />
-          </label>
-        </section>
+          </section>
 
-        <section class="panel p-4 space-y-4">
-          <h3 class="section-title">Condições comerciais</h3>
-          <div>
-            <span class="label">Operação</span>
-            <button type="button" class="input text-left flex items-center justify-between gap-2" @click="abrirOperacao">
-              <span class="truncate" :class="store.cabecalho.operacao ? '' : 'text-ink-400'">{{ operacaoLabel }}</span>
-              <Icon name="chevron-right" class="text-ink-400" />
-            </button>
-            <p v-if="store.cabecalho.operacao" class="meta mt-1.5">
-              Cobrança {{ store.cabecalho.cobranca || '—' }}, local {{ store.cabecalho.local ?? '—' }}
-            </p>
-          </div>
-          <p v-if="travado && aberto" class="meta">Empresa, cliente e condição não mudam enquanto houver itens no pedido.</p>
-          <label class="block">
-            <span class="label">Condição de pagamento</span>
-            <SelectField v-model="store.cabecalho.condpag" :options="opcoes.condicoes.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar condição de pagamento" placeholder="Selecione a condição" data-campo="condicao" :disabled="travado" @change="trocarCondicao" />
-          </label>
-          <label class="block">
-            <span class="label">Tabela de preço</span>
-            <SelectField v-model="store.cabecalho.tabela" :options="opcoes.tabelas.map((t) => ({ value: t.codigo, label: t.descricao }))" title="Selecionar tabela de preço" placeholder="Selecione a tabela" />
-          </label>
-          <div>
-            <span class="label">Carga</span>
-            <button type="button" class="input text-left flex items-center justify-between gap-2" @click="abrirCarga">
-              <span class="truncate" :class="store.cabecalho.carga ? '' : 'text-ink-400'">{{ cargaLabel }}</span>
-              <Icon name="chevron-right" class="text-ink-400 shrink-0" />
-            </button>
-          </div>
-          <label class="block">
-            <span class="label">Comissão</span>
-            <SelectField v-model="store.cabecalho.comissao" :options="comissoes.map((c) => ({ value: c.codigo, label: c.descricao }))" title="Selecionar comissão" placeholder="Selecione a comissão" />
-          </label>
-        </section>
+          <section class="panel p-4 space-y-4">
+            <h3 class="section-title">Condições comerciais</h3>
+            <div>
+              <span class="label required">Operação</span>
+              <button type="button" class="input text-left flex items-center justify-between gap-2" v-bind="attrsCampo('operacao')" aria-haspopup="dialog" @click="abrirOperacao">
+                <span class="truncate" :class="store.cabecalho.operacao ? '' : 'text-ink-400'">{{ operacaoLabel }}</span>
+                <Icon name="chevron-down" class="text-ink-500" />
+              </button>
+              <FieldError id="erro-operacao" :msg="erroDe('operacao')" />
+              <p v-if="store.cabecalho.operacao" class="meta mt-1.5">
+                Cobrança {{ store.cabecalho.cobranca || '—' }}, local {{ store.cabecalho.local ?? '—' }}
+              </p>
+            </div>
+            <p v-if="travado && aberto" class="meta">Empresa, cliente e condição não mudam enquanto houver itens no pedido.</p>
+            <label class="block">
+              <span class="label required">Condição de pagamento</span>
+              <SelectField v-model="store.cabecalho.condpag" :options="opcoes.condicoes.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar condição de pagamento" placeholder="Selecione a condição" v-bind="attrsCampo('condicao')" :disabled="travado" @change="trocarCondicao" />
+              <FieldError id="erro-condicao" :msg="erroDe('condicao')" />
+            </label>
+            <label class="block">
+              <span class="label required">Tabela de preço</span>
+              <SelectField v-model="store.cabecalho.tabela" :options="opcoes.tabelas.map((t) => ({ value: t.codigo, label: t.descricao }))" title="Selecionar tabela de preço" placeholder="Selecione a tabela" v-bind="attrsCampo('tabela')" />
+              <FieldError id="erro-tabela" :msg="erroDe('tabela')" />
+            </label>
+            <div>
+              <span class="label required">Carga</span>
+              <button type="button" class="input text-left flex items-center justify-between gap-2" v-bind="attrsCampo('carga')" aria-haspopup="dialog" @click="abrirCarga">
+                <span class="truncate" :class="store.cabecalho.carga ? '' : 'text-ink-400'">{{ cargaLabel }}</span>
+                <Icon name="chevron-down" class="text-ink-500 shrink-0" />
+              </button>
+              <FieldError id="erro-carga" :msg="erroDe('carga')" />
+            </div>
+            <label class="block">
+              <span class="label required">Comissão</span>
+              <SelectField v-model="store.cabecalho.comissao" :options="comissoes.map((c) => ({ value: c.codigo, label: c.descricao }))" title="Selecionar comissão" placeholder="Selecione a comissão" v-bind="attrsCampo('comissao')" />
+              <FieldError id="erro-comissao" :msg="erroDe('comissao')" />
+            </label>
+          </section>
+        </fieldset>
       </template>
 
       <!-- 2. Produtos -->
       <template v-else-if="step === 1">
         <Segmented
+          v-if="aberto"
           v-model="prodView"
           :options="[{ value: 'buscar', label: 'Buscar produtos' }, { value: 'pedido', label: `No pedido (${itens.length})` }]"
           label="Produtos"
         />
 
-        <template v-if="prodView === 'buscar'">
-          <p v-if="!store.cabecalho.tabela" class="flex items-start gap-2 rounded-xl bg-sun-100 text-sun-800 px-3.5 py-3 text-sm">
+        <template v-if="aberto && prodView === 'buscar'">
+          <p v-if="!store.cabecalho.tabela" class="alert alert-warn">
             <Icon name="info" class="mt-px" />
-            <span>Escolha a tabela de preço na <button class="font-semibold underline" @click="goTo(0)">etapa 1</button> para buscar produtos.</span>
+            <span>Escolha a tabela de preço na <button type="button" class="font-semibold underline underline-offset-4" @click="goTo(0)">etapa 1</button> para buscar produtos.</span>
           </p>
           <div class="space-y-3">
-            <SearchField v-model="prodBusca" placeholder="Buscar produto" @submit="buscarProdutos()" />
+            <SearchField v-model="prodBusca" placeholder="Buscar produto" :auto="!!store.cabecalho.tabela" @submit="buscarProdutos()" />
             <Segmented v-model="prodCampo" :options="PROD_OPTIONS" label="Buscar produto por" />
             <SelectField
               v-if="grupos.length"
@@ -1457,9 +1505,6 @@ watch(
                   <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ p.descvis }}</p>
                   <p class="meta tabular-nums mt-0.5">Cód. {{ p.codigo }}, estoque {{ formatNumero(p.estoque) }}</p>
                   <p class="meta tabular-nums mt-0.5">Mínimo R$ {{ formatReal(p.minimo) }}, Comprado {{ formatNumero(p.comprado) }}</p>
-                  <span v-if="itemDoProduto(p)" class="mt-1.5 inline-flex items-center gap-1 h-5 rounded-full bg-success-50 pl-1.5 pr-2 text-[11px] font-semibold text-success-800">
-                    <Icon name="check" :size="12" :stroke="2.6" /> Já adicionado
-                  </span>
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
                   <p class="text-[15px] font-semibold tabular-nums">R$ {{ formatReal(p.venda) }}</p>
@@ -1468,34 +1513,45 @@ watch(
                   </button>
                 </div>
               </div>
-              <div class="flex items-center gap-2 mt-3">
-                <label class="w-20">
-                  <span class="sr-only">Quantidade</span>
-                  <input v-model="p.qtd" type="number" inputmode="decimal" min="0" class="input min-h-10 py-1.5 text-center" placeholder="Qtd" />
+              <div v-if="itemDoProduto(p)" class="mt-1 flex items-center justify-between gap-3">
+                <span class="inline-flex items-center gap-1 min-h-6 rounded-full bg-success-50 pl-1.5 pr-2.5 text-xs font-semibold text-success-800">
+                  <Icon name="check" :size="12" :stroke="2.6" /> Já adicionado
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm -mr-3 text-danger-700"
+                  :aria-label="`Excluir ${p.descvis} do pedido`"
+                  :disabled="!aberto"
+                  @click="removerItem(itemDoProduto(p))"
+                >
+                  <Icon name="trash" :size="16" /> Excluir
+                </button>
+              </div>
+              <div class="flex flex-wrap items-center gap-2" :class="itemDoProduto(p) ? 'mt-1' : 'mt-3'">
+                <label class="w-16 shrink-0">
+                  <span class="sr-only">Quantidade de {{ p.descvis }}</span>
+                  <input v-model="p.qtd" type="number" inputmode="decimal" min="0" class="input min-h-11 py-1.5 text-center tabular-nums" placeholder="Qtd" :disabled="!aberto" />
                 </label>
                 <SelectField
                   v-if="unidadesProduto(p.codigo).length > 0"
                   v-model="p.unidade"
-                  class="w-24 shrink-0"
+                  class="min-w-28 flex-1"
                   size="sm"
                   :options="unidadeOptions(p.codigo)"
                   :title="`Selecionar unidade de ${p.descvis || p.descricao}`"
                   aria-label="Unidade"
                 />
-                <button class="btn btn-primary btn-sm min-h-10 flex-1" :disabled="!aberto" @click="quickAdd(p)">
+                <button
+                  type="button"
+                  class="btn btn-tonal btn-sm flex-1 min-w-32 px-2"
+                  :disabled="!aberto || (!!ocupado && ocupado !== `add-${p.codigo}`)"
+                  :aria-busy="ocupado === `add-${p.codigo}`"
+                  @click="executar(`add-${p.codigo}`, () => quickAdd(p))"
+                >
                   <Icon :name="itemDoProduto(p) ? 'check' : 'plus'" :size="16" /> {{ itemDoProduto(p) ? 'Atualizar' : 'Adicionar' }}
                 </button>
-                <button class="icon-btn border border-ink-200" aria-label="Ajustar preço e desconto" :disabled="!aberto" @click="itemDoProduto(p) ? abrirModalItem(itemDoProduto(p)) : abrirModalProduto(p)">
+                <button type="button" class="icon-btn border border-field" aria-label="Ajustar preço e desconto" :disabled="!aberto" @click="itemDoProduto(p) ? abrirModalItem(itemDoProduto(p)) : abrirModalProduto(p)">
                   <Icon name="edit" :size="18" />
-                </button>
-                <button
-                  v-if="itemDoProduto(p)"
-                  class="icon-btn border border-ink-200 text-danger-600"
-                  :aria-label="`Excluir ${p.descvis} do pedido`"
-                  :disabled="!aberto"
-                  @click="removerItem(itemDoProduto(p))"
-                >
-                  <Icon name="trash" :size="18" />
                 </button>
               </div>
             </li>
@@ -1505,8 +1561,8 @@ watch(
 
         <template v-else>
           <div v-if="itens.length === 0" class="panel">
-            <EmptyState icon="cart" label="Nenhum item no pedido" hint="Busque produtos e toque em Adicionar.">
-              <button class="btn btn-tonal btn-sm" @click="prodView = 'buscar'">Buscar produtos</button>
+            <EmptyState icon="cart" label="Nenhum item no pedido" :hint="aberto ? 'Busque produtos e toque em Adicionar.' : undefined">
+              <button v-if="aberto" class="btn btn-tonal btn-sm" @click="prodView = 'buscar'">Buscar produtos</button>
             </EmptyState>
           </div>
           <ul v-else class="list">
@@ -1532,123 +1588,125 @@ watch(
 
       <!-- 3. Pagamento -->
       <template v-else-if="step === 2">
-        <section class="panel p-4 space-y-4">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <h2 class="section-title">Parcelas</h2>
-              <p class="meta mt-0.5">{{ finObrigatorio ? 'Distribua o total entre as cobranças.' : 'Opcional. Se informar, a soma deve ser igual ao total do pedido.' }}</p>
-            </div>
-            <p v-if="exigeDistribuir" class="text-right shrink-0">
-              <span class="block meta text-xs">{{ faltaLabel }}</span>
-              <span class="font-semibold tabular-nums" :class="pagamentoOk ? 'text-success-600' : 'text-sun-800'">R$ {{ formatReal(Math.abs(remaining)) }}</span>
-            </p>
-          </div>
-          <ul v-if="parcelas.length" class="divide-y divide-ink-100 border-y border-ink-100 -mx-4">
-            <li v-for="pa in parcelas" :key="pa.idfinanceiro" class="flex items-center gap-3 pl-4 pr-2 py-3">
-              <div class="min-w-0 flex-1">
-                <p class="text-[15px] font-medium truncate">{{ pa.cobdesc || pa.cobranca }}</p>
-                <p class="meta truncate">{{ pa.condesc || pa.condicao }}{{ pa.autorizacao ? `, autorização ${pa.autorizacao}` : '' }}</p>
+        <fieldset class="min-w-0 space-y-4" :disabled="!aberto">
+          <section class="panel p-4 space-y-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <h2 class="section-title">Parcelas</h2>
+                <p class="meta mt-0.5">{{ finObrigatorio ? 'Distribua o total entre as cobranças.' : 'Opcional. Se informar, a soma deve ser igual ao total do pedido.' }}</p>
               </div>
-              <span class="text-[15px] font-semibold tabular-nums">R$ {{ formatReal(pa.valor) }}</span>
-              <button class="icon-btn text-danger-600" aria-label="Excluir parcela" :disabled="!aberto" @click="removerParcela(pa.idfinanceiro)">
-                <Icon name="trash" :size="18" />
-              </button>
-            </li>
-          </ul>
-          <div class="grid grid-cols-2 gap-3">
-            <label class="block col-span-2">
-              <span class="label">Cobrança</span>
-              <SelectField v-model="fin.cobranca" data-campo="cobranca-parcela" :options="opcoes.cobrancas.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar cobrança" placeholder="Selecione a cobrança" />
-            </label>
-            <label class="block col-span-2">
-              <span class="label">Condição</span>
-              <SelectField v-model="fin.condicao" data-campo="condicao-parcela" :options="opcoes.condicoes.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar condição" placeholder="Selecione a condição" />
-            </label>
-            <label class="block">
-              <span class="label">Valor</span>
-              <MoneyInput v-model="fin.valor" data-campo="parcela" :placeholder="`R$ ${formatReal(remaining)}`" />
-            </label>
-            <label class="block">
-              <span class="label">Autorização</span>
-              <input v-model="fin.autorizacao" type="text" class="input" />
-            </label>
-          </div>
-          <button class="btn btn-tonal w-full" :disabled="!aberto" @click="gravarParcela">
-            <Icon name="plus" :size="18" /> Adicionar parcela
-          </button>
-        </section>
+              <p v-if="exigeDistribuir" class="text-right shrink-0">
+                <span class="block meta text-xs">{{ faltaLabel }}</span>
+                <span class="font-semibold tabular-nums" :class="pagamentoOk ? 'text-success-600' : 'text-sun-800'">R$ {{ formatReal(Math.abs(remaining)) }}</span>
+              </p>
+            </div>
+            <ul v-if="parcelas.length" class="divide-y divide-ink-100 border-y border-ink-100 -mx-4">
+              <li v-for="pa in parcelas" :key="pa.idfinanceiro" class="flex items-center gap-3 pl-4 pr-2 py-3">
+                <div class="min-w-0 flex-1">
+                  <p class="text-[15px] font-medium truncate">{{ pa.cobdesc || pa.cobranca }}</p>
+                  <p class="meta truncate">{{ pa.condesc || pa.condicao }}{{ pa.autorizacao ? `, autorização ${pa.autorizacao}` : '' }}</p>
+                </div>
+                <span class="text-[15px] font-semibold tabular-nums">R$ {{ formatReal(pa.valor) }}</span>
+                <button class="icon-btn text-danger-600" :aria-label="`Excluir parcela de R$ ${formatReal(pa.valor)}`" :disabled="!aberto" @click="removerParcela(pa.idfinanceiro)">
+                  <Icon name="trash" :size="18" />
+                </button>
+              </li>
+            </ul>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block col-span-2">
+                <span class="label">Cobrança</span>
+                <SelectField v-model="fin.cobranca" data-campo="cobranca-parcela" :options="opcoes.cobrancas.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar cobrança" placeholder="Selecione a cobrança" />
+              </label>
+              <label class="block col-span-2">
+                <span class="label">Condição</span>
+                <SelectField v-model="fin.condicao" data-campo="condicao-parcela" :options="opcoes.condicoes.map((c) => ({ value: c.codigo, label: c.descr }))" title="Selecionar condição" placeholder="Selecione a condição" />
+              </label>
+              <label class="block">
+                <span class="label">Valor</span>
+                <MoneyInput v-model="fin.valor" data-campo="parcela" :placeholder="`R$ ${formatReal(remaining)}`" />
+              </label>
+              <label class="block">
+                <span class="label">Autorização</span>
+                <input v-model="fin.autorizacao" type="text" class="input" />
+              </label>
+            </div>
+            <button type="button" class="btn btn-tonal w-full" :disabled="!aberto || !!ocupado" :aria-busy="ocupado === 'parcela'" @click="executar('parcela', gravarParcela)">
+              <Icon name="plus" :size="18" /> Adicionar parcela
+            </button>
+          </section>
 
-        <section class="panel p-4 space-y-4">
-          <div>
-            <h2 class="section-title">Desconto no pedido</h2>
-            <p class="meta mt-0.5">{{ descontoModo === 'percent' ? 'Aplicado a todos os itens.' : 'Valor total, dividido igualmente entre os itens.' }} Só vale para pedido aberto.</p>
-          </div>
-          <Segmented
-            v-model="descontoModo"
-            :options="[{ value: 'percent', label: 'Percentual (%)' }, { value: 'reais', label: 'Valor (R$)' }]"
-            label="Tipo de desconto"
-          />
-          <label class="block">
-            <span class="sr-only">{{ descontoModo === 'percent' ? 'Desconto em %' : 'Desconto total em R$' }}</span>
-            <MoneyInput v-if="descontoModo === 'reais'" v-model="descontoValor" data-campo="desconto-pedido" />
-            <input v-else v-model.number="descontoValor" data-campo="desconto-pedido" type="number" inputmode="decimal" min="0" class="input" placeholder="0,00" />
-          </label>
-          <div class="grid grid-cols-2 gap-2">
-            <button class="btn btn-secondary" :disabled="!aberto" @click="removerDesconto">Remover</button>
-            <button class="btn btn-primary" :disabled="!aberto" @click="aplicarDescontoPedido">Aplicar</button>
-          </div>
-        </section>
-
-        <section class="panel p-4 space-y-4">
-          <h2 class="section-title">Acréscimo</h2>
-          <label class="flex items-center justify-between gap-3">
-            <span class="text-[15px]">Por quilo</span>
-            <input v-model="snquilo" type="checkbox" class="switch" />
-          </label>
-          <label v-if="snquilo" class="block">
-            <span class="label">Valor por quilo (R$)</span>
-            <MoneyInput v-model="acrescimo.vlquilo" data-campo="vlquilo" />
-          </label>
-          <label class="flex items-center justify-between gap-3">
-            <span class="text-[15px]">Por unidade</span>
-            <input v-model="snunidade" type="checkbox" class="switch" />
-          </label>
-          <label v-if="snunidade" class="block">
-            <span class="label">Valor por unidade (R$)</span>
-            <MoneyInput v-model="acrescimo.vlunidade" data-campo="vlunidade" />
-          </label>
-          <div class="grid grid-cols-2 gap-2">
-            <button class="btn btn-secondary" :disabled="!aberto" @click="removerAcrescimo">Remover</button>
-            <button class="btn btn-primary" :disabled="!aberto" @click="aplicarAcrescimoPedido">Aplicar</button>
-          </div>
-        </section>
-
-        <section class="panel p-4 space-y-4">
-          <h2 class="section-title">Frete, peso e sucata</h2>
-          <p class="flex items-baseline justify-between gap-3 text-[15px]">
-            <span class="text-ink-500">Peso do pedido</span>
-            <span class="font-semibold tabular-nums">{{ formatNumero(pesoPedido) }} kg</span>
-          </p>
-          <div class="grid grid-cols-2 gap-3">
-            <label class="block">
-              <span class="label">Frete embutido (R$)</span>
-              <MoneyInput v-model="store.cabecalho.valor_frete" data-campo="frete" />
-            </label>
-            <label class="block">
-              <span class="label">Retorno sucata (kg)</span>
-              <input v-model="store.cabecalho.retsuc" type="number" inputmode="decimal" min="0" step="0.01" class="input" placeholder="0,00" />
-            </label>
-          </div>
-          <label class="flex items-center justify-between gap-3">
-            <span class="text-[15px] font-medium">Resolvido</span>
-            <input
-              type="checkbox"
-              class="switch"
-              :checked="store.cabecalho.resolvido === 'S'"
-              @change="store.cabecalho.resolvido = ($event.target as HTMLInputElement).checked ? 'S' : 'N'"
+          <section class="panel p-4 space-y-4">
+            <div>
+              <h2 class="section-title">Desconto no pedido</h2>
+              <p class="meta mt-0.5">{{ descontoModo === 'percent' ? 'Aplicado a todos os itens.' : 'Valor total, dividido igualmente entre os itens.' }} Só vale para pedido aberto.</p>
+            </div>
+            <Segmented
+              v-model="descontoModo"
+              :options="[{ value: 'percent', label: 'Percentual (%)' }, { value: 'reais', label: 'Valor (R$)' }]"
+              label="Tipo de desconto"
             />
-          </label>
-        </section>
+            <label class="block">
+              <span class="sr-only">{{ descontoModo === 'percent' ? 'Desconto em %' : 'Desconto total em R$' }}</span>
+              <MoneyInput v-if="descontoModo === 'reais'" v-model="descontoValor" data-campo="desconto-pedido" />
+              <input v-else v-model.number="descontoValor" data-campo="desconto-pedido" type="number" inputmode="decimal" min="0" class="input" placeholder="0,00" />
+            </label>
+            <div class="grid grid-cols-2 gap-2">
+              <button class="btn btn-secondary" :disabled="!aberto" @click="removerDesconto">Remover</button>
+              <button type="button" class="btn btn-tonal" :disabled="!aberto" @click="aplicarDescontoPedido">Aplicar</button>
+            </div>
+          </section>
+
+          <section class="panel p-4 space-y-4">
+            <h2 class="section-title">Acréscimo</h2>
+            <label class="switch-row">
+              <span class="text-[15px]">Por quilo</span>
+              <input v-model="snquilo" type="checkbox" class="switch" />
+            </label>
+            <label v-if="snquilo" class="block">
+              <span class="label">Valor por quilo (R$)</span>
+              <MoneyInput v-model="acrescimo.vlquilo" data-campo="vlquilo" />
+            </label>
+            <label class="switch-row">
+              <span class="text-[15px]">Por unidade</span>
+              <input v-model="snunidade" type="checkbox" class="switch" />
+            </label>
+            <label v-if="snunidade" class="block">
+              <span class="label">Valor por unidade (R$)</span>
+              <MoneyInput v-model="acrescimo.vlunidade" data-campo="vlunidade" />
+            </label>
+            <div class="grid grid-cols-2 gap-2">
+              <button class="btn btn-secondary" :disabled="!aberto" @click="removerAcrescimo">Remover</button>
+              <button type="button" class="btn btn-tonal" :disabled="!aberto" @click="aplicarAcrescimoPedido">Aplicar</button>
+            </div>
+          </section>
+
+          <section class="panel p-4 space-y-4">
+            <h2 class="section-title">Frete, peso e sucata</h2>
+            <p class="flex items-baseline justify-between gap-3 text-[15px]">
+              <span class="text-ink-500">Peso do pedido</span>
+              <span class="font-semibold tabular-nums">{{ formatNumero(pesoPedido) }} kg</span>
+            </p>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block">
+                <span class="label">Frete embutido (R$)</span>
+                <MoneyInput v-model="store.cabecalho.valor_frete" data-campo="frete" />
+              </label>
+              <label class="block">
+                <span class="label">Retorno sucata (kg)</span>
+                <input v-model="store.cabecalho.retsuc" type="number" inputmode="decimal" min="0" step="0.01" class="input" placeholder="0,00" />
+              </label>
+            </div>
+            <label class="switch-row">
+              <span class="text-[15px] font-medium">Resolvido</span>
+              <input
+                type="checkbox"
+                class="switch"
+                :checked="store.cabecalho.resolvido === 'S'"
+                @change="store.cabecalho.resolvido = ($event.target as HTMLInputElement).checked ? 'S' : 'N'"
+              />
+            </label>
+          </section>
+        </fieldset>
       </template>
 
       <!-- 4. Revisão -->
@@ -1661,7 +1719,7 @@ watch(
           </p>
           <p class="meta mt-2 tabular-nums">
             {{ itens.length }} {{ itens.length === 1 ? 'item' : 'itens' }}, {{ quantidade }} {{ quantidade === 1 ? 'unidade' : 'unidades' }},
-            {{ formatNumero(pesoPedido) }} kg, flex R$ {{ formatReal(flexPedido) }} (saldo R$ {{ formatReal(saldoFlex) }})
+            {{ formatNumero(pesoPedido) }} kg, flex R$&nbsp;{{ formatReal(flexPedido) }} (saldo R$&nbsp;{{ formatReal(saldoFlex) }})
           </p>
         </div>
 
@@ -1669,7 +1727,7 @@ watch(
           <div class="p-4">
             <div class="flex items-baseline justify-between gap-3">
               <h2 id="revisao-cliente" class="section-title">Cliente</h2>
-              <button type="button" class="link" aria-label="Editar cliente e condições" @click="goTo(0)">Editar</button>
+              <button type="button" class="link" :aria-label="`${aberto ? 'Editar' : 'Ver'} cliente e condições`" @click="goTo(0)">{{ aberto ? 'Editar' : 'Ver' }}</button>
             </div>
             <div class="mt-3 flex items-start gap-3">
               <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600" aria-hidden="true">
@@ -1704,8 +1762,8 @@ watch(
 
         <section class="panel p-4">
           <div class="flex items-baseline justify-between gap-3 mb-1.5">
-            <h2 class="text-[13px] font-medium text-ink-500">Produtos</h2>
-            <button class="link" @click="goTo(1)">Editar</button>
+            <h2 class="section-title">Produtos</h2>
+            <button class="link" @click="goTo(1)">{{ aberto ? 'Editar' : 'Ver' }}</button>
           </div>
           <p v-if="itens.length === 0" class="text-sm text-ink-500">Nenhum item.</p>
           <div v-for="i in itens.slice(0, 6)" :key="i.idpedido" class="flex justify-between gap-3 py-1.5 text-sm">
@@ -1719,8 +1777,8 @@ watch(
 
         <section class="panel p-4">
           <div class="flex items-baseline justify-between gap-3 mb-1.5">
-            <h2 class="text-[13px] font-medium text-ink-500">Pagamento</h2>
-            <button class="link" @click="goTo(2)">Editar</button>
+            <h2 class="section-title">Pagamento</h2>
+            <button class="link" @click="goTo(2)">{{ aberto ? 'Editar' : 'Ver' }}</button>
           </div>
           <div v-for="pa in parcelas" :key="pa.idfinanceiro" class="flex justify-between gap-3 py-1.5 text-sm">
             <span class="min-w-0 truncate">{{ pa.cobdesc || pa.cobranca }}, {{ pa.condesc || pa.condicao }}</span>
@@ -1741,28 +1799,28 @@ watch(
         </section>
 
         <section class="panel p-4 space-y-4">
-          <h2 class="text-[13px] font-medium text-ink-500">Observações</h2>
+          <h2 class="section-title">Observações</h2>
           <label class="block">
             <span class="label">Observação</span>
-            <textarea v-model="store.cabecalho.obsped" rows="2" class="input" @change="salvarCampo" />
+            <textarea v-model="store.cabecalho.obsped" rows="2" class="input" :disabled="!aberto" @change="salvarCampo" />
           </label>
           <label class="block">
             <span class="label">Complemento</span>
-            <textarea v-model="store.cabecalho.complemento" rows="2" class="input" @change="salvarCampo" />
+            <textarea v-model="store.cabecalho.complemento" rows="2" class="input" :disabled="!aberto" @change="salvarCampo" />
           </label>
         </section>
       </template>
     </div>
 
     <template #footer>
-      <div v-if="step < 3" class="space-y-2.5">
-        <p v-if="itens.length" class="flex items-baseline justify-between text-sm">
+      <div v-if="step < 3" class="space-y-2.5 [@media(max-height:480px)]:flex [@media(max-height:480px)]:items-center [@media(max-height:480px)]:justify-between [@media(max-height:480px)]:gap-4 [@media(max-height:480px)]:space-y-0">
+        <p v-if="itens.length" class="flex shrink-0 items-baseline justify-between gap-3 text-sm">
           <span class="meta">{{ itens.length }} {{ itens.length === 1 ? 'item' : 'itens' }}</span>
           <span class="font-semibold tabular-nums">R$ {{ formatReal(total) }}</span>
         </p>
-        <div class="flex gap-2">
-          <button v-if="step > 0" class="btn btn-secondary" @click="goTo(step - 1)">Voltar</button>
-          <button class="btn btn-primary flex-1" @click="goTo(step + 1)">{{ STEPS[step].next }}</button>
+        <div class="flex flex-1 gap-2">
+          <button v-if="step > 0" type="button" class="btn btn-secondary" @click="goTo(step - 1)">Voltar</button>
+          <button type="button" class="btn btn-primary flex-1 min-w-0 whitespace-normal leading-tight" @click="goTo(step + 1)">{{ STEPS[step].next }}</button>
         </div>
       </div>
       <div v-else class="space-y-2.5">
@@ -1771,10 +1829,10 @@ watch(
           <button class="btn btn-secondary px-3.5" aria-label="Mais ações" @click="showAcoes = true">
             <Icon name="more" :size="22" />
           </button>
-          <button class="btn btn-secondary" :disabled="!!motivoImpressao" @click="imprimir">
+          <button type="button" class="btn btn-secondary max-[359px]:px-3 max-[359px]:[&>svg]:hidden" :disabled="!!motivoImpressao" :aria-busy="ocupado === 'imprimir'" @click="executar('imprimir', imprimir)">
             <Icon name="printer" /> Imprimir
           </button>
-          <button class="btn btn-primary flex-1" :disabled="!!motivoFinal" @click="finalizarPedido">
+          <button type="button" class="btn btn-primary flex-1 min-w-0 px-3" :disabled="!!motivoFinal" :aria-busy="ocupado === 'finalizar'" @click="executar('finalizar', finalizarPedido)">
             <Icon name="check" /> Finalizar
           </button>
         </div>
@@ -1807,7 +1865,7 @@ watch(
       </div>
       <EmptyState v-if="clientes.length === 0" icon="users" label="Nenhum cliente encontrado" />
       <ul v-else class="divide-y divide-ink-100 -mx-5">
-        <li v-for="c in clientes" :key="c.clifor">
+        <li v-for="c in clientesVisiveis" :key="c.clifor">
           <button class="list-row px-5" @click="aplicarCliente(c)">
             <span class="block text-[15px] font-medium">{{ c.fantasia }}</span>
             <span class="meta block">{{ c.cidade }}{{ c.estado ? ` / ${c.estado}` : '' }}</span>
@@ -1815,6 +1873,7 @@ watch(
           </button>
         </li>
       </ul>
+      <div v-if="temMaisClientes" ref="sentinela" class="h-px" aria-hidden="true" />
     </Sheet>
 
     <Sheet :open="showOperacao" title="Selecionar operação" @close="showOperacao = false">
@@ -1906,7 +1965,7 @@ watch(
         </div>
       </div>
       <template #footer>
-        <button class="btn btn-primary w-full" :disabled="!aberto" @click="gravarModal">Salvar item</button>
+        <button type="button" class="btn btn-primary w-full" :disabled="!aberto || !!ocupado" :aria-busy="ocupado === 'item'" @click="executar('item', gravarModal)">Salvar item</button>
       </template>
     </Sheet>
 
@@ -1930,7 +1989,8 @@ watch(
     </Sheet>
 
     <Sheet :open="showSucata" title="Saldo de sucata" :subtitle="cliente.fantasia" @close="showSucata = false">
-      <EmptyState v-if="sucataRows.length === 0" icon="info" label="Nenhum saldo de sucata" />
+      <LoadingState v-if="sucataLoading" :rows="3" label="Consultando saldo…" class="-mx-4 rounded-none border-0" />
+      <EmptyState v-else-if="sucataRows.length === 0" icon="info" label="Nenhum saldo de sucata" />
       <table v-else class="data-table">
         <thead>
           <tr>
@@ -1948,7 +2008,8 @@ watch(
     </Sheet>
 
     <Sheet :open="showSaldos" title="Saldos do cliente" :subtitle="cliente.fantasia" @close="showSaldos = false">
-      <EmptyState v-if="saldosRows.length === 0" icon="info" label="Nenhum saldo" />
+      <LoadingState v-if="saldosLoading" :rows="3" label="Consultando saldos…" class="-mx-4 rounded-none border-0" />
+      <EmptyState v-else-if="saldosRows.length === 0" icon="info" label="Nenhum saldo" />
       <table v-else class="data-table">
         <thead>
           <tr>

@@ -95,10 +95,12 @@ export const usePedidoStore = defineStore('pedido', {
     async reabrir() {
       await reabrirPedido(this.cabecalho.numpedido)
       this.pedstatus = 'A'
+      this.cabecalho.status = 'A'
     },
     async transformarOrcamento() {
       await orcamentoToPedido(this.cabecalho.numpedido)
       this.pedstatus = 'A'
+      this.cabecalho.status = 'A'
     },
     async reenviar() {
       await reenviarPedido(this.cabecalho.numpedido)
@@ -107,6 +109,7 @@ export const usePedidoStore = defineStore('pedido', {
     async duplicar() {
       this.cabecalho.numpedido = await duplicarPedido(this.cabecalho.numpedido)
       this.pedstatus = 'A'
+      this.cabecalho.status = 'A'
     },
   },
 })

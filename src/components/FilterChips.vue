@@ -8,17 +8,23 @@ const emit = defineEmits<{ (e: 'remove', key: string): void; (e: 'open'): void }
 </script>
 
 <template>
-  <div v-if="items.length" class="flex gap-2 overflow-x-auto -mx-4 px-4 pb-0.5 [scrollbar-width:none]">
+  <div v-if="items.length" class="flex flex-wrap gap-2">
     <span
       v-for="c in items"
       :key="c.key"
-      class="inline-flex items-center shrink-0 h-8 rounded-full bg-brand-50 border border-brand-100 text-brand-600 text-[13px] font-medium"
+      class="inline-flex items-center max-w-full min-h-10 rounded-full bg-brand-50 border border-brand-100 text-brand-600 text-[13px] font-medium"
     >
-      <button type="button" class="pl-3 h-full" :class="c.removable === false ? 'pr-3' : 'pr-1'" @click="emit('open')">{{ c.label }}</button>
+      <button
+        type="button"
+        class="self-stretch min-h-10 min-w-0 truncate pl-3.5 rounded-l-full active:bg-brand-100"
+        :class="c.removable === false ? 'pr-3.5 rounded-r-full' : 'pr-1'"
+        :aria-label="`Filtro ${c.label}: alterar`"
+        @click="emit('open')"
+      >{{ c.label }}</button>
       <button
         v-if="c.removable !== false"
         type="button"
-        class="h-full pl-1 pr-2.5 text-brand-600"
+        class="self-stretch min-w-10 inline-flex items-center justify-center rounded-r-full text-brand-600 active:bg-brand-100"
         :aria-label="`Remover filtro ${c.label}`"
         @click="emit('remove', c.key)"
       >
