@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mensagemLogin, parseLogin } from './auth'
+import { mensagemLogin, parseLogin, prodsincInicial } from './auth'
 
 describe('parseLogin', () => {
   it('returns null when result is not True', () => {
@@ -48,5 +48,16 @@ describe('mensagemLogin', () => {
   it('sem motivo, assume usuário ou senha', () => {
     expect(msg('<retorno><result>False</result></retorno>')).toBe('usuário ou senha inválidos')
     expect(msg('<String/>')).toBe('usuário ou senha inválidos')
+  })
+})
+
+describe('prodsincInicial', () => {
+  it('exige sincronizar produtos depois do login de quem tem sincprod', () => {
+    expect(prodsincInicial('S')).toBe('N')
+  })
+  it('libera a digitação para os demais', () => {
+    expect(prodsincInicial('N')).toBe('S')
+    expect(prodsincInicial('')).toBe('S')
+    expect(prodsincInicial(undefined)).toBe('S')
   })
 })

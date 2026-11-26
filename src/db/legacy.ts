@@ -39,18 +39,34 @@ export interface LegacyPaths {
   newDb: string
 }
 
+export interface CopyOptions {
+  /**
+   * Substitui um banco novo que já exista. Só para o banco vazio criado depois de uma
+   * importação que falhou (ver `legacyPendente`).
+   */
+  substituir?: boolean
+}
+
 /**
  * Copia o banco antigo para o caminho do novo. Retorna `true` se importou.
- * Só age quando o banco novo ainda não existe e o antigo existe.
+ * Só age quando o antigo existe e o banco novo ainda não existe (ou `substituir`).
  */
-export async function copyLegacyDatabase(fs: LegacyFs, paths: LegacyPaths): Promise<boolean> {
+export async function copyLegacyDatabase(
+  fs: LegacyFs,
+  paths: LegacyPaths,
+  { substituir = false }: CopyOptions = {},
+): Promise<boolean> {
   const { oldDb, newDb } = paths
-  if (await fs.exists(newDb)) return false
   if (!(await fs.exists(oldDb))) return false
 
   const tmp = `${newDb}.tmp`
   const removeIfExists = async (p: string) => {
     if (await fs.exists(p)) await fs.remove(p)
+  }
+
+  if (await fs.exists(newDb)) {
+    if (!substituir) return false
+    for (const s of ['', '-shm']) await removeIfExists(newDb + s)
   }
 
   // Restos de uma tentativa interrompida.
@@ -79,6 +95,14 @@ export async function copyLegacyDatabase(fs: LegacyFs, paths: LegacyPaths): Prom
     }
   }
   return true
+}
+
+/**
+ * O banco antigo ainda está no lugar original: nunca foi importado com sucesso
+ * (depois de importado ele é renomeado para `.importado`).
+ */
+export async function legacyPendente(fs: LegacyFs, paths: LegacyPaths): Promise<boolean> {
+  return fs.exists(paths.oldDb)
 }
 
 const capacitorFs: LegacyFs = {
@@ -121,14 +145,25 @@ async function nativePaths(): Promise<LegacyPaths | null> {
  * Importa o banco do app antigo, se houver. Nunca lança: em caso de erro o app segue com
  * um banco novo vazio (o usuário faz login e sincroniza), e o arquivo antigo fica intacto.
  */
-export async function importLegacyDatabase(): Promise<boolean> {
+export async function importLegacyDatabase(options: CopyOptions = {}): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return false
   try {
     const paths = await nativePaths()
     if (!paths) return false
-    return await copyLegacyDatabase(capacitorFs, paths)
+    return await copyLegacyDatabase(capacitorFs, paths, options)
   } catch (e) {
     console.error('Falha ao importar banco do app antigo', e)
+    return false
+  }
+}
+
+/** Há banco do app antigo que ainda não foi importado. Nunca lança. */
+export async function legacyDatabasePendente(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return false
+  try {
+    const paths = await nativePaths()
+    return !!paths && (await legacyPendente(capacitorFs, paths))
+  } catch {
     return false
   }
 }

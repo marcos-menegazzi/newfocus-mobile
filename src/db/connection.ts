@@ -4,8 +4,9 @@ import {
   SQLiteConnection,
   type SQLiteDBConnection,
 } from '@capacitor-community/sqlite'
-import { DB_NAME, SCHEMA_SQL, SCHEMA_VERSION, TABLES } from './schema'
-import { importLegacyDatabase } from './legacy'
+import { DB_NAME, SCHEMA_SQL, TABLES } from './schema'
+import { VERSAO_COMPILACAO } from '../lib/appInfo'
+import { importLegacyDatabase, legacyDatabasePendente } from './legacy'
 import { parseTable, upgradeSchema } from './upgrade'
 
 let sqlite: SQLiteConnection | null = null
@@ -38,20 +39,13 @@ export function initDb(): Promise<void> {
   return initPromise
 }
 
-async function doInitDb(): Promise<void> {
-  const conn = await connection()
-  // Instalado por cima do app Cordova antigo: traz o banco dele antes da primeira conexão.
-  const imported = await importLegacyDatabase()
-
+async function abrir(conn: SQLiteConnection): Promise<SQLiteDBConnection> {
   const consistent = await conn.checkConnectionsConsistency()
   const exists = (await conn.isConnection(DB_NAME, false)).result
 
-  let d: SQLiteDBConnection
-  if (consistent.result && exists) {
-    d = await conn.retrieveConnection(DB_NAME, false)
-  } else {
-    d = await conn.createConnection(DB_NAME, false, 'no-encryption', 1, false)
-  }
+  const d = consistent.result && exists
+    ? await conn.retrieveConnection(DB_NAME, false)
+    : await conn.createConnection(DB_NAME, false, 'no-encryption', 1, false)
   await d.open()
   await d.execute(SCHEMA_SQL)
   await upgradeSchema(
@@ -60,11 +54,34 @@ async function doInitDb(): Promise<void> {
       await d.execute(sql)
     },
   )
-  if (imported) {
-    // O usuário logado no app antigo continua logado; a versão gravada passa a ser a deste app
-    // (é a enviada na validação da sincronização).
-    await d.run('UPDATE usuario SET versao = ?', [SCHEMA_VERSION])
+  return d
+}
+
+/** Sem usuário, pedido nem cliente: banco recém-criado, nada a perder. */
+async function bancoVazio(d: SQLiteDBConnection): Promise<boolean> {
+  for (const tabela of ['usuario', 'ped', 'clifor']) {
+    const r = await d.query(`SELECT 1 FROM ${tabela} LIMIT 1`)
+    if ((r.values ?? []).length > 0) return false
   }
+  return true
+}
+
+async function doInitDb(): Promise<void> {
+  const conn = await connection()
+  // Instalado por cima do app Cordova antigo: traz o banco dele antes da primeira conexão.
+  const imported = await importLegacyDatabase()
+
+  let d = await abrir(conn)
+  // Uma importação anterior falhou e o app seguiu com um banco vazio: sem isso os pedidos
+  // do app antigo nunca mais seriam trazidos. Tenta de novo, substituindo o banco vazio.
+  if (!imported && (await legacyDatabasePendente()) && (await bancoVazio(d))) {
+    await conn.closeConnection(DB_NAME, false)
+    await importLegacyDatabase({ substituir: true })
+    d = await abrir(conn)
+  }
+  // A versão gravada é a enviada na validação da sincronização: passa a ser a desta
+  // compilação também para quem já estava logado (no app antigo ou numa versão anterior).
+  await d.run('UPDATE usuario SET versao = ?', [VERSAO_COMPILACAO])
   db = d
 }
 

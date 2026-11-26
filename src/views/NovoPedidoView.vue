@@ -36,6 +36,7 @@ import { abrirDanfe, emitirNfe, emitirBoleto } from '../services/sync/fiscal'
 import { exigirServidorLivre } from '../services/sync/gate'
 import { pushClientes } from '../services/sync/clientes'
 import { pushPedidos } from '../services/sync/pedidos'
+import { ESTADO_VOLTA_AO_INICIO, voltaAoInicio } from '../lib/navegacao'
 import { useAuthStore } from '../stores/auth'
 import { usePedidoStore } from '../stores/pedido'
 import { useBackButton } from '../composables/useBackButton'
@@ -119,9 +120,16 @@ const showCliente = ref(false)
 const showOperacao = ref(false)
 const showCarga = ref(false)
 
+// Código e descrição, como no app antigo (o vendedor reconhece pelo código).
+const comCodigo = (codigo: unknown, descricao: unknown) => {
+  const d = String(descricao ?? '').trim()
+  if (codigo === null || codigo === undefined || codigo === '') return d
+  return d && !d.startsWith(`${codigo} - `) ? `${codigo} - ${d}` : d || String(codigo)
+}
 const cargaLabel = computed(() => {
   const c = cargas.value.find((x) => String(x.codigo) === String(store.cabecalho.carga))
-  return c ? c.descricao : (store.cabecalho.cargadesc || 'Selecionar carga')
+  if (c) return comCodigo(c.codigo, c.descricao)
+  return store.cabecalho.cargadesc ? comCodigo(store.cabecalho.carga, store.cabecalho.cargadesc) : 'Selecionar carga'
 })
 const operacaoLabel = computed(() => store.cabecalho.operacao || 'Selecionar operação')
 
@@ -147,7 +155,18 @@ const nome = (list: any[], key: string, val: unknown, field: string) =>
 const empresaNome = computed(() => nome(empresas.value, 'empresa', store.cabecalho.empresa, 'fantasia'))
 const vendedorNome = computed(() => nome(vendedores.value, 'codigo', store.cabecalho.vendedor, 'nome'))
 const condicaoNome = computed(() => nome(condicoes.value, 'codigo', store.cabecalho.condpag, 'descr'))
-const tabelaNome = computed(() => nome(tabelas.value, 'codigo', store.cabecalho.tabela, 'descricao'))
+const tabelaNome = computed(() => {
+  const t = tabelas.value.find((x) => String(x.codigo) === String(store.cabecalho.tabela))
+  return t ? comCodigo(t.codigo, t.descricao) : ''
+})
+const tabelaDoItem = (codigo: unknown) => {
+  const t = tabelas.value.find((x) => String(x.codigo) === String(codigo))
+  return t ? comCodigo(t.codigo, t.descricao) : String(codigo ?? '')
+}
+const comissaoDoItem = (codigo: unknown) => {
+  const c = comissoes.value.find((x) => String(x.codigo) === String(codigo))
+  return c ? comCodigo(c.codigo, c.descricao) : String(codigo ?? '')
+}
 const comissaoNome = computed(() => nome(comissoes.value, 'codigo', store.cabecalho.comissao, 'descricao'))
 const tipoLabel = computed(() => ({ S: 'Saída', E: 'Entrada', O: 'Orçamento' } as Record<string, string>)[store.cabecalho.tipo] ?? '')
 const razaoRevisao = computed(() => cliente.razao || store.cabecalho.cliente_nome)
@@ -226,9 +245,10 @@ async function salvarCampo() {
   }
 }
 
+// Como no app antigo: a busca abre em Descrição reduzida, e a lista sai ordenada por ela.
 const PROD_OPTIONS = [
-  { value: 'descricao', label: 'Descrição' },
   { value: 'descred', label: 'Reduzida' },
+  { value: 'descricao', label: 'Descrição' },
   { value: 'codigo', label: 'Código' },
 ]
 const CLIENT_OPTIONS = [
@@ -345,11 +365,20 @@ const avisoAvista = () => avisar({
   message: `${msgVencidos(auth.usuario?.dias)} Só é permitida condição à vista.`,
 })
 
+// Como no app antigo, os títulos vencidos são lembrados também ao escolher a condição.
 async function trocarCondicao() {
   const c = store.cabecalho
-  if (situacaoDoCliente(c.tipo) !== 'somente-avista' || isCondAvista(condicoes.value, c.condpag)) return
-  c.condpag = ''
-  await avisoAvista()
+  const s = situacaoDoCliente(c.tipo)
+  if (s === 'ok' || !c.condpag) return
+  if (s === 'somente-avista' && !isCondAvista(condicoes.value, c.condpag)) {
+    c.condpag = ''
+    await avisoAvista()
+    return
+  }
+  await avisar({
+    title: 'Títulos vencidos',
+    message: s === 'somente-avista' ? msgVencidos(auth.usuario?.dias) : 'Cliente possui títulos vencidos.',
+  })
 }
 
 // Entrada ignora títulos vencidos; ao sair dela a regra volta a valer.
@@ -503,7 +532,7 @@ function assertAberto(): boolean {
 }
 
 // --- Incluir (produtos) ---
-const prodCampo = ref('descricao')
+const prodCampo = ref('descred')
 const prodBusca = ref('')
 const prodGrupo = ref('')
 const produtos = ref<any[]>([])
@@ -1073,6 +1102,18 @@ async function imprimirPeloErp() {
   }
 }
 
+// Deixa este pedido como está e começa outro (o aberto continua na lista de pedidos).
+// O novo toma o lugar deste no histórico: voltar dele leva ao início, não a este pedido.
+async function novoPedido() {
+  try {
+    await persistTotal()
+  } catch (e) {
+    notify(msg(e), 'error')
+    return
+  }
+  await router.replace({ name: 'pedido-novo', state: ESTADO_VOLTA_AO_INICIO })
+}
+
 async function reenviar() {
   try {
     await store.reenviar()
@@ -1102,11 +1143,13 @@ const motivoImpressao = computed(() => motivoImprimir(situacao.value))
 const acoes = computed(() => {
   const s = situacao.value
   return [
+    { label: 'Finalizar pedido', icon: 'check', fn: finalizarPedido, motivo: motivoFinal.value },
+    { label: 'Novo pedido', icon: 'plus', fn: novoPedido, motivo: null },
     { label: danfeEmitida(s) ? 'Ver DANFE' : 'Emitir NF-e', icon: 'file', fn: nfe, motivo: motivoNfePedido(s) },
     { label: 'Gerar boleto', icon: 'barcode', fn: boleto, motivo: motivoBoleto(s) },
     { label: 'Gerar termo', icon: 'receipt', fn: gerarTermo, motivo: motivoBoleto(s) },
     { label: 'Imprimir pelo ERP', icon: 'printer', fn: imprimirPeloErp, motivo: motivoBoleto(s) },
-    ...(s.status === 'V' ? [{ label: 'Reenviar pedido', icon: 'send', fn: reenviar, motivo: motivoReenviar(s) }] : []),
+    { label: 'Reenviar pedido', icon: 'send', fn: reenviar, motivo: motivoReenviar(s) },
     { label: 'Reabrir pedido', icon: 'undo', fn: reabrir, motivo: motivoReabrir(s) },
     ...(s.tipo === 'O' ? [{ label: 'Transformar orçamento em pedido', icon: 'orders', fn: transformar, motivo: motivoTransformar(s) }] : []),
     { label: 'Duplicar pedido', icon: 'copy', fn: duplicar, motivo: motivoDuplicar(s) },
@@ -1216,7 +1259,8 @@ useBackButton(async (canGoBack) => {
     await goTo(step.value - 1)
     return
   }
-  if (canGoBack) router.back()
+  if (voltaAoInicio()) await router.replace({ name: auth.homeRoute })
+  else if (canGoBack) router.back()
   else await router.push({ name: auth.homeRoute })
 })
 
@@ -1448,7 +1492,7 @@ watch(
             </label>
             <label class="block">
               <span class="label required">Tabela de preço</span>
-              <SelectField v-model="store.cabecalho.tabela" :options="opcoes.tabelas.map((t) => ({ value: t.codigo, label: t.descricao }))" title="Selecionar tabela de preço" placeholder="Selecione a tabela" v-bind="attrsCampo('tabela')" />
+              <SelectField v-model="store.cabecalho.tabela" :options="opcoes.tabelas.map((t) => ({ value: t.codigo, label: comCodigo(t.codigo, t.descricao) }))" title="Selecionar tabela de preço" placeholder="Selecione a tabela" v-bind="attrsCampo('tabela')" />
               <FieldError id="erro-tabela" :msg="erroDe('tabela')" />
             </label>
             <div>
@@ -1573,9 +1617,17 @@ watch(
           <ul v-else class="list">
             <li v-for="i in itens" :key="i.idpedido" class="flex items-start gap-2 pl-4 pr-2 py-3">
               <div class="min-w-0 flex-1">
-                <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ i.descricao }}</p>
-                <p class="meta tabular-nums mt-0.5">{{ i.qtd }} × R$ {{ formatReal(i.vlunit) }}</p>
-                <p v-if="descontoLabel(i) !== '—'" class="text-xs text-brand-600 font-medium mt-0.5">Desconto {{ descontoLabel(i) }}</p>
+                <p class="text-[15px] font-medium leading-snug line-clamp-2"><span class="tabular-nums">{{ i.codproduto }}</span> - {{ i.descricao }}</p>
+                <p class="meta tabular-nums mt-0.5">{{ i.qtd }}{{ i.unidade ? ` ${i.unidade}` : '' }} × R$ {{ formatReal(i.vlunit) }}</p>
+                <p v-if="descontoLabel(i) !== '—' || Number(i.descinc) > 0" class="text-xs text-brand-600 font-medium mt-0.5">
+                  {{ [descontoLabel(i) !== '—' && `Desconto ${descontoLabel(i)}`, Number(i.descinc) > 0 && `Desc. inc. ${formatNumero(i.descinc)}%`].filter(Boolean).join(', ') }}
+                </p>
+                <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 text-xs text-ink-500">
+                  <dt>Operação</dt><dd class="text-ink-700 break-words">{{ i.operacao || '—' }}</dd>
+                  <dt>Condição</dt><dd class="text-ink-700 break-words">{{ comCodigo(i.condicao, i.dcond) || '—' }}</dd>
+                  <dt>Comissão</dt><dd class="text-ink-700 break-words">{{ comissaoDoItem(i.comissao) || '—' }}</dd>
+                  <dt>Tabela</dt><dd class="text-ink-700 break-words">{{ tabelaDoItem(i.tabela) || '—' }}</dd>
+                </dl>
               </div>
               <p class="text-[15px] font-semibold tabular-nums shrink-0 pt-px">R$ {{ formatReal(i.vltotal) }}</p>
               <div class="flex shrink-0 -mt-1">
@@ -1872,7 +1924,7 @@ watch(
       <ul v-else class="divide-y divide-ink-100 -mx-5">
         <li v-for="c in clientesVisiveis" :key="c.clifor">
           <button class="list-row px-5" @click="aplicarCliente(c)">
-            <span class="block text-[15px] font-medium">{{ c.fantasia }}</span>
+            <span class="block text-[15px] font-medium"><span class="tabular-nums">{{ c.codigo }}</span> - {{ clienteCampo === 'razao' ? c.razao : c.fantasia }}</span>
             <span class="meta block">{{ c.cidade }}{{ c.estado ? ` / ${c.estado}` : '' }}</span>
             <span v-if="c.cnpj" class="meta block tabular-nums">{{ c.cnpj }}</span>
           </button>
@@ -1906,7 +1958,7 @@ watch(
       <ul v-else class="divide-y divide-ink-100 -mx-5">
         <li v-for="c in cargas" :key="c.codigo">
           <button class="list-row px-5 flex items-center justify-between gap-3" @click="aplicarCarga(c)">
-            <span class="text-[15px] font-medium">{{ c.descricao }}</span>
+            <span class="text-[15px] font-medium">{{ comCodigo(c.codigo, c.descricao) }}</span>
             <Icon v-if="String(store.cabecalho.carga) === String(c.codigo)" name="check" class="text-brand-600" :stroke="2.4" />
           </button>
         </li>

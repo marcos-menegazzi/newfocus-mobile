@@ -1,5 +1,4 @@
 export const DB_NAME = 'newfocus.db'
-export const SCHEMA_VERSION = '20260930'
 
 // Reproduced verbatim from the old Cordova app (www/index.html createDatabase()).
 export const TABLES: string[] = [

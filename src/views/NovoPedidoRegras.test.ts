@@ -476,3 +476,63 @@ it.each(consultasDeSaldo)('$nome avisa que a consulta falhou e permite tentar de
   concluir(xml(resposta))
   await vi.waitFor(() => expect(painel.textContent).toContain(linha))
 })
+
+it('a lista de clientes mostra o código, e a tabela de preço aparece com o código', async () => {
+  await montar()
+  botao('Selecionar cliente', host).click()
+  await vi.waitFor(() => expect(document.body.textContent).toContain('1 - Alfa'))
+  botao('Alfa').click()
+  await vi.waitFor(() => expect(host.textContent).toContain('9 - Exclusiva'))
+})
+
+it('ao escolher a condição, lembra dos títulos vencidos do cliente', async () => {
+  await inserir('titulos', { clifor: 1, numero: '1', vencimento: '2020-01-01', empresa: 1, valor: 1 })
+  await montar({ bloqueia: 'N' })
+  await escolher('Alfa')
+  await vi.waitFor(() => expect(dialogo.message).toContain('Cliente possui títulos vencidos.'))
+  responder(true)
+  await nextTick()
+  host.querySelector<HTMLButtonElement>('[data-campo="condicao"]')!.click()
+  await vi.waitFor(() => expect(botao('À vista')).toBeTruthy())
+  botao('À vista').click()
+  await vi.waitFor(() => expect(dialogo).toMatchObject({ open: true, title: 'Títulos vencidos', message: 'Cliente possui títulos vencidos.' }))
+  expect(usePedidoStore().cabecalho.condpag).toBe(1)
+})
+
+it('a busca de produtos abre pela descrição reduzida e ordena por ela', async () => {
+  await inserir('produtos', { codigo: 'B', descricao: 'Alfa completo', descred: 'ZZ reduzida' })
+  await inserir('produtos', { codigo: 'A', descricao: 'Zeta completo', descred: 'AA reduzida' })
+  await inserir('mvtpreco', { tabela_codigo: 9, produto: 'A', venda: 10, maximo: 20, minimo: 8 })
+  await inserir('mvtpreco', { tabela_codigo: 9, produto: 'B', venda: 10, maximo: 20, minimo: 8 })
+  await inserir('ped', { numpedido: '0000000001', status: 'A', clifor: 1, empresa: 1, condpag: 1, tabela: 9, carga: 1, operacao: 'V', comissao: 4, data: '2026-11-25', tipo: 'S', etapa: 1, total: 0 })
+  rota.name = 'pedido-edit'
+  rota.params = { numpedido: '0000000001' }
+  await montar()
+  await vi.waitFor(() => expect(host.textContent).toContain('ZZ reduzida'))
+  const texto = host.textContent!
+  expect(texto.indexOf('AA reduzida')).toBeLessThan(texto.indexOf('ZZ reduzida'))
+})
+
+it('os itens do pedido mostram código, operação, condição, comissão e tabela', async () => {
+  await pedidoNaEtapaProdutos()
+  botao('Adicionar', host).click()
+  await vi.waitFor(() => expect(host.textContent).toContain('Já adicionado'))
+  botao('No pedido', host).click()
+  await vi.waitFor(() => expect(host.textContent).toContain('A - Bateria'))
+  expect(host.textContent).toContain('1 - À vista')
+  expect(host.textContent).toContain('4 - Padrão')
+  expect(host.textContent).toContain('9 - Exclusiva')
+})
+
+it('mais ações traz finalizar, novo pedido e reenviar (desabilitado fora de aguardando confirmação)', async () => {
+  await pedidoNaEtapaProdutos()
+  botao('Adicionar', host).click()
+  await vi.waitFor(() => expect(host.textContent).toContain('Já adicionado'))
+  host.querySelector<HTMLButtonElement>('[aria-label="Mais ações"]')!.click()
+  await vi.waitFor(() => expect(botao('Finalizar pedido')).toBeTruthy())
+  expect(botao('Finalizar pedido').disabled).toBe(false)
+  expect(botao('Reenviar pedido').disabled).toBe(true)
+  expect(botao('Reenviar pedido').textContent).toContain('Só pedidos aguardando confirmação')
+  botao('Novo pedido').click()
+  await vi.waitFor(() => expect(router.replace).toHaveBeenCalledWith({ name: 'pedido-novo', state: { voltarAoInicio: true } }))
+})

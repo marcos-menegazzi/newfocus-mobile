@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { TABLES, SCHEMA_VERSION } from './schema'
+import { TABLES } from './schema'
 
 describe('schema', () => {
   it('defines exactly 33 tables', () => {
@@ -10,9 +10,5 @@ describe('schema', () => {
     for (const t of TABLES) {
       expect(t).toMatch(/^CREATE TABLE IF NOT EXISTS \w+/)
     }
-  })
-
-  it('uses the current schema version', () => {
-    expect(SCHEMA_VERSION).toBe('20260930')
   })
 })

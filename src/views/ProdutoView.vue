@@ -158,7 +158,7 @@ onMounted(async () => {
               <EmptyState icon="receipt" label="Sem preço cadastrado" hint="Este produto não está em nenhuma tabela de preço." />
             </div>
             <div v-for="t in precos" :key="String(t.codigo)" class="panel overflow-hidden">
-              <h3 class="px-4 pt-3.5 pb-1 text-sm font-semibold text-ink-700">{{ t.descricao }}</h3>
+              <h3 class="px-4 pt-3.5 pb-1 text-sm font-semibold text-ink-700"><span class="tabular-nums">{{ t.codigo }}</span> - {{ t.descricao }}</h3>
               <div class="overflow-x-auto">
                 <table class="data-table">
                   <thead>

@@ -24,7 +24,7 @@ const MENU_VENDAS: GrupoMenu[] = [
     items: [
       { name: 'pedido-novo', label: 'Novo pedido', icon: 'cart' },
       { name: 'historico-vendas', label: 'Histórico de vendas', icon: 'chart' },
-      { name: 'metas', label: 'Metas', icon: 'target' },
+      { name: 'metas', label: 'Objetivos', icon: 'target' },
     ],
   },
   { label: 'Campo', items: [{ name: 'agenda', label: 'Agenda de visitas', icon: 'calendar' }] },
@@ -38,3 +38,8 @@ export const menu = (isOs: boolean): GrupoMenu[] => (isOs ? MENU_OS : MENU_VENDA
 
 const NOMES_ABAS = new Set([...ABAS_VENDAS, ...ABAS_OS].map((a) => a.name))
 export const ehAba = (name: unknown): boolean => NOMES_ABAS.has(String(name ?? ''))
+
+// Telas que começam algo do zero a partir de outra (o novo pedido aberto de dentro de um
+// pedido) trocam a anterior no histórico e, ao voltar, levam ao início.
+export const ESTADO_VOLTA_AO_INICIO = { voltarAoInicio: true }
+export const voltaAoInicio = (): boolean => !!window.history.state?.voltarAoInicio

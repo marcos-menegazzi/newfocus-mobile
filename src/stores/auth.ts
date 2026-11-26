@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { soapCommand, text } from '../services/soap'
 import { run, query } from '../db/connection'
-import { SCHEMA_VERSION } from '../db/schema'
+import { VERSAO_COMPILACAO } from '../lib/appInfo'
 import type { LoginInput, LoginResult, Usuario } from '../types'
 
 export function parseLogin(doc: Document): LoginResult | null {
@@ -31,6 +31,15 @@ export function mensagemLogin(doc: Document): string {
   return text(doc, 'msg') || (result && result !== 'False' ? result : 'usuário ou senha inválidos')
 }
 
+/**
+ * Liberação de digitação (`prodsinc`) gravada no login. O login não traz produtos e os
+ * dados de antes do "Sair" continuam no aparelho: quem precisa sincronizar produtos antes
+ * de cada pedido (`sincprod`) começa sem liberação.
+ */
+export function prodsincInicial(sincprod: string | null | undefined): 'S' | 'N' {
+  return sincprod === 'S' ? 'N' : 'S'
+}
+
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     usuario: null as Usuario | null,
@@ -45,7 +54,7 @@ export const useAuthStore = defineStore('auth', {
   },
   actions: {
     async login(input: LoginInput): Promise<void> {
-      const comando = `P_LGWEB:EXEC("${input.usuario}","${input.senha}","${input.licenciada}", "${SCHEMA_VERSION}")`
+      const comando = `P_LGWEB:EXEC("${input.usuario}","${input.senha}","${input.licenciada}", "${VERSAO_COMPILACAO}")`
       const doc = await soapCommand({
         server: input.server,
         comando,
@@ -64,7 +73,7 @@ export const useAuthStore = defineStore('auth', {
         estoque: r.estoque,
         server: input.server.trim().toLowerCase(),
         id: input.id.trim().toLowerCase(),
-        versao: SCHEMA_VERSION,
+        versao: VERSAO_COMPILACAO,
         bloqueia: r.bloqueia,
         dias: parseFloat(r.dias),
         libera: r.libera,
@@ -85,7 +94,7 @@ export const useAuthStore = defineStore('auth', {
         [
           usuario.codlic, usuario.usuario, usuario.senha, usuario.estoque, usuario.server,
           usuario.id, usuario.versao, usuario.bloqueia, usuario.dias, usuario.libera,
-          usuario.sincprod, 'S', usuario.limcred, usuario.bloqemp, usuario.bloqcli,
+          usuario.sincprod, prodsincInicial(usuario.sincprod), usuario.limcred, usuario.bloqemp, usuario.bloqcli,
           usuario.libmin, usuario.snos, usuario.altcli, usuario.obscli, usuario.finped,
         ],
       )

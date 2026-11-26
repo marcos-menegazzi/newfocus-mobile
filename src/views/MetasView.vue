@@ -145,7 +145,7 @@ async function buscar() {
   } catch {
     failed.value = true
     // Sem nada carregado, a própria tela explica e oferece tentar de novo.
-    if (searched.value) notify('Não foi possível atualizar as metas. Verifique a conexão.', 'error')
+    if (searched.value) notify('Não foi possível atualizar os objetivos. Verifique a conexão.', 'error')
   } finally {
     loading.value = false
   }
@@ -161,7 +161,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <AppShell title="Metas">
+  <AppShell title="Objetivos">
     <template #actions>
       <FilterButton :count="activeCount" class="mr-1" @click="abrirFiltros" />
     </template>
@@ -169,16 +169,16 @@ onMounted(async () => {
     <div class="page">
       <FilterChips :items="chips" @remove="removerFiltro" @open="abrirFiltros" />
 
-      <LoadingState v-if="loading && !searched" :rows="4" label="Consultando metas no servidor…" />
+      <LoadingState v-if="loading && !searched" :rows="4" label="Consultando objetivos no servidor…" />
 
       <div v-else-if="failed && !searched" class="panel">
-        <EmptyState icon="alert" label="Não foi possível carregar as metas" hint="As metas são consultadas no servidor. Verifique a conexão com a internet.">
+        <EmptyState icon="alert" label="Não foi possível carregar os objetivos" hint="Os objetivos são consultados no servidor. Verifique a conexão com a internet.">
           <button class="btn btn-tonal btn-sm" @click="buscar">Tentar de novo</button>
         </EmptyState>
       </div>
 
       <div v-else-if="searched && rows.length === 0" class="panel">
-        <EmptyState icon="target" label="Nenhuma meta no período" hint="Escolha outro período ou remova os filtros de grupo e marca." />
+        <EmptyState icon="target" label="Nenhum objetivo no período" hint="Escolha outro período ou remova os filtros de grupo e marca." />
       </div>
 
       <template v-else-if="searched">
@@ -193,7 +193,7 @@ onMounted(async () => {
                 :class="resumo.pct >= 100 ? 'text-success-600' : 'text-ink-700'"
               >
                 <Icon :name="resumo.pct >= 100 ? 'check-circle' : 'target'" :size="18" />
-                {{ resumo.pct >= 100 ? 'Meta batida' : `Faltam R$ ${formatReal(resumo.falta)}` }}
+                {{ resumo.pct >= 100 ? 'Objetivo alcançado' : `Faltam R$ ${formatReal(resumo.falta)}` }}
               </p>
             </div>
             <div class="mt-4">
@@ -210,7 +210,7 @@ onMounted(async () => {
               </div>
             </dl>
             <p v-if="parsed.length > 1" class="meta mt-3">
-              {{ resumo.atingidas }} de {{ parsed.length }} {{ labelPlural(tipo) }} já bateram a meta.
+              {{ resumo.atingidas }} de {{ parsed.length }} {{ labelPlural(tipo) }} já alcançaram o objetivo.
             </p>
           </section>
 
@@ -303,7 +303,7 @@ onMounted(async () => {
       </template>
     </div>
 
-    <Sheet :open="showFiltros" title="Filtrar metas" @close="showFiltros = false">
+    <Sheet :open="showFiltros" title="Filtrar objetivos" @close="showFiltros = false">
       <div class="space-y-5">
         <PeriodField v-model:ini="draft.dtInicial" v-model:fim="draft.dtFinal" />
         <label class="block">

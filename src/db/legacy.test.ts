@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { copyLegacyDatabase, type LegacyFs } from './legacy'
+import { copyLegacyDatabase, legacyPendente, type LegacyFs } from './legacy'
 
 function memFs(initial: Record<string, string>): LegacyFs & { files: Record<string, string> } {
   const files = { ...initial }
@@ -83,5 +83,36 @@ describe('copyLegacyDatabase', () => {
     await expect(copyLegacyDatabase(fs, paths)).rejects.toThrow('disk full')
     expect(fs.files['/new/newfocusSQLite.db']).toBeUndefined()
     expect(fs.files['/old/newfocus.db']).toBe('DB')
+  })
+
+  it('replaces an existing (empty) new database when asked to', async () => {
+    const fs = memFs({
+      '/old/newfocus.db': 'OLD',
+      '/new/newfocusSQLite.db': 'EMPTY',
+      '/new/newfocusSQLite.db-wal': 'EMPTY-WAL',
+      '/new/newfocusSQLite.db-shm': 'EMPTY-SHM',
+    })
+    expect(await copyLegacyDatabase(fs, paths, { substituir: true })).toBe(true)
+    expect(fs.files['/new/newfocusSQLite.db']).toBe('OLD')
+    expect(fs.files['/new/newfocusSQLite.db-wal']).toBeUndefined()
+    expect(fs.files['/new/newfocusSQLite.db-shm']).toBeUndefined()
+    expect(fs.files['/old/newfocus.db.importado']).toBe('OLD')
+  })
+
+  it('keeps the new database when there is nothing to replace it with', async () => {
+    const fs = memFs({ '/new/newfocusSQLite.db': 'NEW' })
+    expect(await copyLegacyDatabase(fs, paths, { substituir: true })).toBe(false)
+    expect(fs.files['/new/newfocusSQLite.db']).toBe('NEW')
+  })
+})
+
+describe('legacyPendente', () => {
+  it('is true while the legacy database was never imported (not renamed to backup)', async () => {
+    expect(await legacyPendente(memFs({ '/old/newfocus.db': 'DB' }), paths)).toBe(true)
+  })
+
+  it('is false after a successful import or without a legacy app', async () => {
+    expect(await legacyPendente(memFs({ '/old/newfocus.db.importado': 'DB' }), paths)).toBe(false)
+    expect(await legacyPendente(memFs({}), paths)).toBe(false)
   })
 })

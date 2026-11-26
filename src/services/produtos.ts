@@ -2,8 +2,10 @@ import { query } from '../db/connection'
 
 const COLUNAS: Record<string, string> = { descred: 'descred', descricao: 'descricao', codigo: 'codigo' }
 
-// Buscando por código, a linha continua mostrando a descrição.
-const descricaoDe = (col: string) => (col === 'descred' ? 'descred' : 'descricao')
+// Buscando por código, a linha continua mostrando a descrição. Produto sem descrição
+// reduzida mostra (e ordena pela) descrição completa.
+const descricaoDe = (col: string) =>
+  col === 'descred' ? "COALESCE(NULLIF(TRIM(p.descred), ''), p.descricao)" : 'p.descricao'
 
 export interface ProdutoRow {
   codigo: string
@@ -39,7 +41,7 @@ export async function buscarProdutos(f: FiltroProdutos): Promise<ProdutoRow[]> {
     where += ` AND p.${COLUNAS[f.col]} LIKE ?`
     params.push(`%${termo}%`)
   }
-  const select = `SELECT p.codigo, sum(e.estoque) AS estoque, p.${descricaoDe(f.col)} AS descvis, p.comprado,
+  const select = `SELECT p.codigo, sum(e.estoque) AS estoque, ${descricaoDe(f.col)} AS descvis, p.comprado,
     (SELECT COUNT(*) FROM histvenda h INNER JOIN histitens i ON h.lancto = i.lancto INNER JOIN produtos g ON g.codigo = i.produto
       WHERE h.data BETWEEN ? AND ? AND i.faturamento = 'S' AND i.produto = p.codigo) AS positivado
     FROM (SELECT * FROM produtos x GROUP BY x.codigo) p LEFT JOIN estoque e ON p.codigo = e.codigo${estoque}${centralizado}
@@ -68,7 +70,7 @@ export async function buscarProdutosPedido(f: FiltroProdutosPedido): Promise<any
   if (f.grupo) params.push(f.grupo)
   params.push(f.tabela)
   let sql = `SELECT x.*, m.venda, m.maximo, m.minimo, t.codigo AS tabela
-    FROM (SELECT p.*, e.estoque, p.${descricaoDe(f.col)} AS descvis
+    FROM (SELECT p.*, e.estoque, ${descricaoDe(f.col)} AS descvis
           FROM produtos p LEFT JOIN estoque e ON p.codigo = e.codigo AND e.empresa = ? AND e.local = ?
           ${f.grupo ? 'WHERE p.grupo = ?' : ''}) x,
          tpreco t, mvtpreco m

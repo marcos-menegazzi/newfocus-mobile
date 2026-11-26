@@ -5,6 +5,7 @@ import BottomNav from './BottomNav.vue'
 import Sidebar from './Sidebar.vue'
 import Icon from './Icon.vue'
 import { useTeclado } from '../composables/useTeclado'
+import { voltaAoInicio } from '../lib/navegacao'
 import { useAuthStore } from '../stores/auth'
 
 const props = defineProps<{ title?: string; subtitle?: string; back?: boolean }>()
@@ -19,7 +20,8 @@ const { tecladoAberto } = useTeclado()
 const comBarra = computed(() => !props.back && !tecladoAberto.value)
 
 function goBack() {
-  if (window.history.length > 1) router.back()
+  if (voltaAoInicio()) router.replace({ name: auth.homeRoute })
+  else if (window.history.length > 1) router.back()
   else router.push({ name: auth.homeRoute })
 }
 </script>

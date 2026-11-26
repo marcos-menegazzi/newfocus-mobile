@@ -13,6 +13,8 @@ import { periodoMes } from '../lib/periodo'
 import { indicadores } from '../services/indicadores'
 import { useAoVoltar } from '../composables/useAoVoltar'
 import { useLastSync } from '../composables/useLastSync'
+import { useAuthStore } from '../stores/auth'
+import { APP_VERSION, VERSAO_COMPILACAO } from '../lib/appInfo'
 import { useToast } from '../composables/useToast'
 
 interface CountRow { total: number }
@@ -27,6 +29,7 @@ interface PedidoRow {
 }
 
 const { lastSync } = useLastSync()
+const auth = useAuthStore()
 const { notify } = useToast()
 
 const loading = ref(true)
@@ -78,6 +81,22 @@ useAoVoltar(carregar)
 <template>
   <AppShell title="Início">
     <div class="page">
+      <!-- Muitos vendedores recebem o aparelho já logado: usuário e versão ficam à vista. -->
+      <dl class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 px-1 text-[13px] text-ink-500">
+        <div class="flex gap-1">
+          <dt>Usuário</dt>
+          <dd class="font-semibold text-ink-700">{{ auth.usuario?.usuario }}</dd>
+        </div>
+        <div class="flex gap-1">
+          <dt>Versão</dt>
+          <dd class="font-semibold text-ink-700 tabular-nums">{{ APP_VERSION }} ({{ VERSAO_COMPILACAO }})</dd>
+        </div>
+        <div class="flex gap-1 basis-full">
+          <dt>Última sincronização:</dt>
+          <dd class="font-semibold text-ink-700 tabular-nums">{{ lastSync }}</dd>
+        </div>
+      </dl>
+
       <section class="rounded-3xl on-navy bg-brand-600 text-cream px-5 pt-5 pb-6" aria-labelledby="hero-title" :aria-busy="loading">
         <p id="hero-title" class="text-cream-dim text-[15px]">Vendas faturadas em {{ mes }}</p>
         <p class="mt-2 flex items-baseline gap-1.5">
@@ -165,7 +184,6 @@ useAoVoltar(carregar)
         </ul>
       </section>
 
-      <p class="text-center text-[13px] text-ink-500">Última sincronização: {{ lastSync }}</p>
     </div>
   </AppShell>
 </template>

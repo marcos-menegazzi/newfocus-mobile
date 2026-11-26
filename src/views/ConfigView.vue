@@ -67,7 +67,7 @@ async function save() {
           </dd>
         </div>
         <div class="flex justify-between gap-4 px-4 py-3.5">
-          <dt class="text-ink-500">Versão do banco</dt>
+          <dt class="text-ink-500">Versão no servidor</dt>
           <dd class="font-medium tabular-nums">{{ auth.usuario?.versao }}</dd>
         </div>
       </dl>

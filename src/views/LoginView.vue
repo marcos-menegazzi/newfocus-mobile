@@ -38,7 +38,7 @@ async function submit() {
     <div class="sticky top-0 z-10 shrink-0 bg-brand-600 safe-top" aria-hidden="true" />
     <div class="pt-8 px-6 pb-5 flex flex-col items-center text-center">
       <Logo variant="full" :height="128" />
-      <p class="mt-4 text-ink-500 text-[15px]">Pedidos, clientes e metas no seu bolso.</p>
+      <p class="mt-4 text-ink-500 text-[15px]">Pedidos, clientes e objetivos no seu bolso.</p>
     </div>
 
     <form class="flex-1 w-full max-w-md mx-auto px-6 pt-2 safe-bottom [--pad-bottom:2rem] space-y-6" @submit.prevent="submit">
