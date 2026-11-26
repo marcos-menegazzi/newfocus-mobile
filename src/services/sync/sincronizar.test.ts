@@ -28,6 +28,7 @@ import { buscarClientes } from '../clientes'
 import { syncTitulos } from './titulos'
 import { syncHistorico } from './historico'
 import { servidorOcupado } from './gate'
+import { useSyncStore } from '../../stores/sync'
 
 const base = {
   P_VDCWEB: '<String><retorno><status>ok</status></retorno></String>',
@@ -59,6 +60,34 @@ describe('sincronização seletiva', () => {
   it('por padrão sincroniza tudo', async () => {
     await sincronizar()
     for (const c of ['P_CWEB', 'P_PRODWEB', 'P_EWEB', 'P_TBPWEB', 'P_GPWEB', 'P_TWEB', 'P_HISTWEB', 'P_AGWEB']) expect(chamou(c)).toBe(true)
+  })
+})
+
+describe('ordem das etapas', () => {
+  const pos = (nome: string) => comandos.findIndex((c) => c.startsWith(nome + ':'))
+
+  it('valida primeiro e só consulta pedidos e saldo depois de todas as cargas', async () => {
+    await inserir('ped', { numpedido: '1', idunico: 'abc', status: 'S' })
+    await sincronizar()
+    expect(pos('P_VDCWEB')).toBe(0)
+    const cargas = ['P_OPWEB', 'P_CONDWEB', 'P_CWEB', 'P_PRODWEB', 'P_EWEB', 'P_TBPWEB', 'P_TWEB', 'P_HISTWEB', 'P_AGWEB']
+    for (const c of cargas) expect(pos(c)).toBeLessThan(pos('P_VPEDW'))
+    expect(pos('P_FLXWEB01')).toBe(comandos.length - 1)
+    expect(useSyncStore().progress).toBe(100)
+  })
+  it('falha numa etapa paralela interrompe antes de finalizar', async () => {
+    respostas.P_CONDWEB = 'ERRO'
+    await expect(sincronizar()).rejects.toThrow('sem rede')
+    expect(chamou('P_HISTWEB')).toBe(true)
+    expect(chamou('P_FLXWEB01')).toBe(false)
+    expect(useSyncStore().error).toBe('sem rede')
+    expect(useSyncStore().running).toBe(false)
+  })
+  it('carga de condições substitui as anteriores', async () => {
+    await inserir('condicao', { codigo: 1, inativo: 'N' })
+    respostas.P_CONDWEB = '<String><retorno><c><codigo>2</codigo><descricao>X</descricao><parcelas>1</parcelas><avista>S</avista><inativo>N</inativo></c></retorno></String>'
+    await syncCondicao()
+    expect(await query('SELECT codigo FROM condicao')).toEqual([{ codigo: 2 }])
   })
 })
 

@@ -7,6 +7,10 @@ vi.mock('../../db/connection', () => ({
     runs.push({ sql, params })
     return { changes: 1 }
   }),
+  runBatch: vi.fn(async (cmds: { statement: string; values: unknown[] }[]) => {
+    for (const c of cmds) runs.push({ sql: c.statement, params: c.values })
+  }),
+  execute: vi.fn(async () => {}),
 }))
 
 vi.mock('../../stores/auth', () => ({

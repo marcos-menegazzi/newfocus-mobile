@@ -8,6 +8,10 @@ vi.mock('../../db/connection', () => ({
     return { changes: 1 }
   }),
   query: vi.fn(async () => []),
+  runBatch: vi.fn(async (cmds: { statement: string; values: unknown[] }[]) => {
+    for (const c of cmds) runs.push({ sql: c.statement, params: c.values })
+  }),
+  execute: vi.fn(async () => {}),
 }))
 
 vi.mock('../../stores/auth', () => ({
@@ -61,5 +65,15 @@ describe('pullClientes', () => {
 
     const cond = runs.find((r) => /INSERT INTO condicao_cliente/.test(r.sql))
     expect(cond?.params).toEqual(['5', '1001'])
+  })
+
+  it('grava a página inteira numa única chamada ao banco', async () => {
+    const conn = await import('../../db/connection')
+    vi.mocked(conn.run).mockClear()
+    vi.mocked(conn.runBatch).mockClear()
+    const { pullClientes } = await import('./clientes')
+    await pullClientes()
+    expect(conn.runBatch).toHaveBeenCalledTimes(1)
+    expect(conn.run).not.toHaveBeenCalled()
   })
 })

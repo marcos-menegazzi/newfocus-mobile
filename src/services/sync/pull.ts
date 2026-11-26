@@ -1,9 +1,8 @@
-import { run } from '../../db/connection'
+import { execute } from '../../db/connection'
 
 export async function clearTables(tables: string[]): Promise<void> {
-  for (const t of tables) {
-    await run(`DELETE FROM ${t}`)
-  }
+  if (tables.length === 0) return
+  await execute(tables.map((t) => `DELETE FROM ${t};`).join('\n'))
 }
 
 export async function pullPaged(

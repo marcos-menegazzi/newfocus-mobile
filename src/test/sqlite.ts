@@ -30,6 +30,18 @@ export async function run(sql: string, values: unknown[] = []): Promise<{ change
   return { changes: db.getRowsModified() }
 }
 
+export async function runBatch(comandos: { statement: string; values: unknown[] }[]): Promise<void> {
+  if (comandos.length === 0) return
+  db.exec('BEGIN')
+  try {
+    for (const c of comandos) db.run(c.statement, bind(c.values))
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
+}
+
 export async function execute(sql: string): Promise<void> {
   db.exec(sql)
 }

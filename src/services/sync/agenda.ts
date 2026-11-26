@@ -1,7 +1,7 @@
 import { call } from './context'
 import { childText, linhas, tag } from './helpers'
 import { clearTables } from './pull'
-import { run, query } from '../../db/connection'
+import { query, runBatch } from '../../db/connection'
 import { useAuthStore } from '../../stores/auth'
 
 export async function pullAgenda(): Promise<void> {
@@ -18,12 +18,13 @@ export async function pullAgenda(): Promise<void> {
   // Só limpa depois da resposta: a agenda local pode ter itens ainda não enviados.
   if (rows.length === 0) return
   await clearTables(['agenda'])
-  for (const r of rows) {
-    await run("INSERT INTO agenda(clifor, data_base, dia, hora, dias, snvis) VALUES (?,?,?,?,?,'S')", [
+  await runBatch(rows.map((r) => ({
+    statement: "INSERT INTO agenda(clifor, data_base, dia, hora, dias, snvis) VALUES (?,?,?,?,?,'S')",
+    values: [
       childText(r, 'cliente'), childText(r, 'dtuvisita'), childText(r, 'diavisita'),
       childText(r, 'hrvisita'), childText(r, 'dias'),
-    ])
-  }
+    ],
+  })))
 }
 
 export async function pushVisitas(): Promise<void> {
@@ -41,8 +42,9 @@ export async function pushVisitas(): Promise<void> {
     ).join('') + '[/agendas]'
 
     await call(`P_RAGWEB:EXEC("${xml}","${u.codlic}","${u.usuario}")`)
-    for (const v of rows) {
-      await run("UPDATE visitas SET sincronizada = 'S' WHERE idvisita = ?", [v.idvisita])
-    }
+    await runBatch(rows.map((v) => ({
+      statement: "UPDATE visitas SET sincronizada = 'S' WHERE idvisita = ?",
+      values: [v.idvisita],
+    })))
   }
 }

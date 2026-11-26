@@ -1,6 +1,6 @@
 import { call } from './context'
 import { childText, rowChildren, removechar, tag } from './helpers'
-import { run, query } from '../../db/connection'
+import { run, query, runBatch } from '../../db/connection'
 import { useAuthStore } from '../../stores/auth'
 import { useToast } from '../../composables/useToast'
 
@@ -82,12 +82,10 @@ export async function pullPedidoStatus(): Promise<void> {
   if (rows.length === 0) return
   const xml = '[pedidos]' + rows.map((r) => `[pedido]${tag('numpedido', r.idunico)}[/pedido]`).join('') + '[/pedidos]'
   const doc = await call(`P_VPEDW:EXEC("${xml}","${u.usuario}","${u.codlic}")`)
-  for (const r of rowChildren(doc, 'retorno')) {
-    const status = childText(r, 'status')
-    if (status === 'S' || status === 'Z') {
-      await run('UPDATE ped SET status = ?, sefaz = ?, file = ?, lancto = ? WHERE idunico = ?', [
-        status, childText(r, 'sefaz'), childText(r, 'chave'), childText(r, 'lancto'), childText(r, 'idunico'),
-      ])
-    }
-  }
+  await runBatch(rowChildren(doc, 'retorno')
+    .filter((r) => ['S', 'Z'].includes(childText(r, 'status')))
+    .map((r) => ({
+      statement: 'UPDATE ped SET status = ?, sefaz = ?, file = ?, lancto = ? WHERE idunico = ?',
+      values: [childText(r, 'status'), childText(r, 'sefaz'), childText(r, 'chave'), childText(r, 'lancto'), childText(r, 'idunico')],
+    })))
 }

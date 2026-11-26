@@ -84,6 +84,31 @@ export async function run(
   return { changes, lastId }
 }
 
+export interface Comando {
+  statement: string
+  values: unknown[]
+}
+
+// Limita o JSON que atravessa a bridge numa só chamada.
+const LOTE_MAX = 2000
+
+/**
+ * Executa vários comandos numa única chamada nativa e numa única transação por lote.
+ * Um `run()` por linha custa uma ida à bridge e um BEGIN/COMMIT (fsync) cada, o que
+ * deixa a carga de milhares de registros na sincronização muito lenta.
+ */
+export async function runBatch(comandos: Comando[]): Promise<void> {
+  if (comandos.length === 0) return
+  const d = await getDb()
+  for (let i = 0; i < comandos.length; i += LOTE_MAX) {
+    const lote = comandos.slice(i, i + LOTE_MAX).map((c) => ({
+      statement: c.statement,
+      values: c.values.map((v) => (v === undefined ? null : v)),
+    }))
+    await d.executeSet(lote, true)
+  }
+}
+
 export async function query<T>(sql: string, values: unknown[] = []): Promise<T[]> {
   const d = await getDb()
   const r = await d.query(sql, values)
