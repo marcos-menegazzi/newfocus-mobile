@@ -8,6 +8,7 @@ import { useAuthStore } from '../stores/auth'
 import { useLastSync } from '../composables/useLastSync'
 import { useConfirm } from '../composables/useConfirm'
 import { useOverlay } from '../composables/useOverlay'
+import { pendenciasRestauracao } from '../services/restaurar'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -32,10 +33,14 @@ async function go(name: string) {
 
 async function logout() {
   emit('close')
+  // Usuário de OS não guarda nada no aparelho.
+  const pendente = auth.isOs ? null : await pendenciasRestauracao().catch(() => null)
   const ok = await confirmar({
     title: 'Sair da conta?',
-    message: 'Para entrar de novo, você vai precisar do servidor, do usuário e da senha.',
-    confirmLabel: 'Sair',
+    message: pendente
+      ? 'Há clientes, pedidos ou visitas que ainda não foram enviados. Ao sair, todos os dados do aparelho são apagados, inclusive eles, e não dá para recuperar.'
+      : 'Todos os dados do aparelho serão apagados. Para entrar de novo, você vai precisar do servidor, do usuário e da senha.',
+    confirmLabel: pendente ? 'Apagar e sair' : 'Sair',
     danger: true,
   })
   if (!ok) return

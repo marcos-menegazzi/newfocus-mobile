@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import { soapCommand, text } from '../services/soap'
 import { run, query } from '../db/connection'
+import { limparAparelho } from '../services/sair'
+import { usePedidoStore } from './pedido'
+import { useSyncStore } from './sync'
 import { VERSAO_COMPILACAO } from '../lib/appInfo'
 import type { LoginInput, LoginResult, Usuario } from '../types'
 
@@ -32,9 +35,8 @@ export function mensagemLogin(doc: Document): string {
 }
 
 /**
- * Liberação de digitação (`prodsinc`) gravada no login. O login não traz produtos e os
- * dados de antes do "Sair" continuam no aparelho: quem precisa sincronizar produtos antes
- * de cada pedido (`sincprod`) começa sem liberação.
+ * Liberação de digitação (`prodsinc`) gravada no login. O login não traz produtos: quem
+ * precisa sincronizar produtos antes de cada pedido (`sincprod`) começa sem liberação.
  */
 export function prodsincInicial(sincprod: string | null | undefined): 'S' | 'N' {
   return sincprod === 'S' ? 'N' : 'S'
@@ -115,8 +117,11 @@ export const useAuthStore = defineStore('auth', {
       return true
     },
 
+    /** Apaga todos os dados do aparelho: o próximo login começa do zero. */
     async logout(): Promise<void> {
-      await run('DELETE FROM usuario')
+      await limparAparelho()
+      usePedidoStore().$reset()
+      useSyncStore().$reset()
       this.usuario = null
       this.loggedIn = false
     },
