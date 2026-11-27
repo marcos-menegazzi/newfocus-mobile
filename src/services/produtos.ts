@@ -1,11 +1,12 @@
 import { query } from '../db/connection'
 
-const COLUNAS: Record<string, string> = { descred: 'descred', descricao: 'descricao', codigo: 'codigo' }
-
 // Buscando por código, a linha continua mostrando a descrição. Produto sem descrição
 // reduzida mostra (e ordena pela) descrição completa.
 const descricaoDe = (col: string) =>
   col === 'descred' ? "COALESCE(NULLIF(TRIM(p.descred), ''), p.descricao)" : 'p.descricao'
+
+// A busca procura no mesmo texto que a linha mostra: sem reduzida, na descrição completa.
+const campoBusca = (col: string) => (col === 'codigo' ? 'p.codigo' : descricaoDe(col))
 
 export interface ProdutoRow {
   codigo: string
@@ -38,7 +39,7 @@ export async function buscarProdutos(f: FiltroProdutos): Promise<ProdutoRow[]> {
   }
   const termo = f.termo.trim()
   if (termo) {
-    where += ` AND p.${COLUNAS[f.col]} LIKE ?`
+    where += ` AND ${campoBusca(f.col)} LIKE ?`
     params.push(`%${termo}%`)
   }
   const select = `SELECT p.codigo, sum(e.estoque) AS estoque, ${descricaoDe(f.col)} AS descvis, p.comprado,
@@ -77,7 +78,7 @@ export async function buscarProdutosPedido(f: FiltroProdutosPedido): Promise<any
     WHERE t.codigo = m.tabela_codigo AND m.produto = x.codigo AND m.tabela_codigo = ?`
   const termo = f.termo.trim()
   if (termo) {
-    sql += ` AND x.${COLUNAS[f.col]} LIKE ?`
+    sql += ` AND ${f.col === 'codigo' ? 'x.codigo' : 'x.descvis'} LIKE ?`
     params.push(`%${termo}%`)
   }
   return query<any>(`${sql} ORDER BY descvis LIMIT ? OFFSET ?`, [...params, f.limit, f.offset])

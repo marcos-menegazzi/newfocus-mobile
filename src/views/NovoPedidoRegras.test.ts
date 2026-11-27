@@ -134,6 +134,33 @@ it('o card do produto traz mínimo, comprado e observação, e marca o que já e
   await vi.waitFor(() => expect(host.textContent).toContain('Já adicionado'))
 })
 
+it('carregar mais some quando os produtos acabam', async () => {
+  for (let n = 1; n <= 31; n++) {
+    const codigo = `P${String(n).padStart(2, '0')}`
+    await inserir('produtos', { codigo, descricao: `Item ${codigo}` })
+    await inserir('mvtpreco', { tabela_codigo: 9, produto: codigo, venda: 10, maximo: 20, minimo: 8 })
+  }
+  await pedidoNaEtapaProdutos()
+  await vi.waitFor(() => expect(botao('Carregar mais produtos', host)).toBeTruthy())
+  botao('Carregar mais produtos', host).click()
+  await vi.waitFor(() => expect(host.querySelectorAll('ul.list > li')).toHaveLength(32))
+  expect(botao('Carregar mais produtos', host)).toBeUndefined()
+})
+
+it('trocar o campo da busca refaz a busca com o termo digitado', async () => {
+  await inserir('produtos', { codigo: 'Z9', descricao: 'Pneu' })
+  await inserir('mvtpreco', { tabela_codigo: 9, produto: 'Z9', venda: 10, maximo: 20, minimo: 8 })
+  await pedidoNaEtapaProdutos()
+  const campo = host.querySelector<HTMLInputElement>('input[type="search"]')!
+  campo.value = 'Z9'
+  campo.dispatchEvent(new Event('input'))
+  campo.form!.dispatchEvent(new Event('submit'))
+  await vi.waitFor(() => expect(host.textContent).toContain('Nenhum produto encontrado'))
+  host.querySelector<HTMLButtonElement>('[aria-label="Buscar produto por"] [role="radio"]:last-child')!.click()
+  await vi.waitFor(() => expect(host.textContent).toContain('Pneu'))
+  expect(host.textContent).not.toContain('Bateria')
+})
+
 it('acima do crédito não inclui item', async () => {
   await query('UPDATE clifor SET credito = 1001')
   await pedidoNaEtapaProdutos()

@@ -559,6 +559,7 @@ const prodGrupo = ref('')
 const produtos = ref<any[]>([])
 const prodSearched = ref(false)
 const prodPage = ref(0)
+const prodTemMais = ref(false)
 const PROD_LIMIT = 30
 let prodRequest = 0
 
@@ -584,6 +585,7 @@ function limparProdutos() {
   produtos.value = []
   prodSearched.value = false
   prodPage.value = 0
+  prodTemMais.value = false
 }
 
 function itemDoProduto(p: any) {
@@ -628,6 +630,8 @@ async function buscarProdutos(reset = true) {
     r.unidade = item?.unidade ?? ''
   })
   produtos.value = reset ? rows : produtos.value.concat(rows)
+  // Página incompleta: não há mais produtos para carregar.
+  prodTemMais.value = rows.length === PROD_LIMIT
   prodSearched.value = true
 }
 
@@ -643,6 +647,11 @@ watch(
     limparProdutos()
   },
 )
+
+// Trocar o campo muda o que a busca procura e a descrição exibida: refaz com o termo atual.
+watch(prodCampo, () => {
+  if (prodSearched.value && store.cabecalho.tabela) void buscarProdutos()
+})
 
 watch(step, (atual, anterior) => {
   if (atual >= 2) void refreshParcelas()
@@ -1634,7 +1643,7 @@ watch(
               </div>
             </li>
           </ul>
-          <button v-if="produtos.length >= PROD_LIMIT" class="btn btn-secondary w-full" @click="maisProdutos">Carregar mais produtos</button>
+          <button v-if="prodTemMais" class="btn btn-secondary w-full" @click="maisProdutos">Carregar mais produtos</button>
         </template>
 
         <template v-else>

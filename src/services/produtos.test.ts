@@ -28,3 +28,15 @@ it('busca do pedido filtra por grupo', async () => {
     { codigo: '100', descvis: 'Bateria 60', venda: 10, minimo: 9, estoque: 10, comprado: 5, observacao: 'a;b', tabela: 1 },
   ])
 })
+
+it('buscando por reduzida, acha pela descrição completa o produto que não tem reduzida', async () => {
+  await inserir('produtos', { codigo: '300', descricao: 'Filtro de ar', descred: '' })
+  await inserir('mvtpreco', { tabela_codigo: 1, produto: '300', venda: 5, maximo: 9, minimo: 4 })
+  const base = { col: 'descred', termo: 'Filtro', empresa: 1, local: 1, tabela: 1, limit: 10, offset: 0 }
+  expect(await buscarProdutosPedido(base)).toMatchObject([{ codigo: '300', descvis: 'Filtro de ar' }])
+  // A reduzida, quando existe, continua sendo o campo da busca.
+  expect((await buscarProdutosPedido({ ...base, termo: 'BAT' })).map((p) => p.codigo)).toEqual(['100'])
+  expect(await buscarProdutosPedido({ ...base, termo: 'Bateria' })).toEqual([])
+  const r = await buscarProdutos({ col: 'descred', termo: 'Filtro', positivado: 'todos', empresa: '', soComEstoque: false, periodo: ['2026-11-01', '2026-11-30'], limit: 10, offset: 0 })
+  expect(r).toMatchObject([{ codigo: '300', descvis: 'Filtro de ar' }])
+})
