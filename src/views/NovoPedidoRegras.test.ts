@@ -75,7 +75,7 @@ it('escolher o cliente aplica as condições dele e mostra a observação', asyn
   await escolher('Alfa')
   await vi.waitFor(() => expect(dialogo).toMatchObject({ open: true, aviso: true, message: 'Entregar cedo' }))
   expect(usePedidoStore().cabecalho).toMatchObject({ clifor: 1, tabela: 9, comissao: 4, cliente_nome: 'Alfa' })
-  expect(host.textContent).toContain('Crédito disponível R$ 700,00')
+  expect(host.textContent).toContain('Crédito disponívelR$ 700,00')
   expect(host.textContent).toContain('Exclusiva')
 })
 
@@ -125,7 +125,7 @@ async function pedidoNaEtapaProdutos() {
 it('o card do produto traz mínimo, comprado e observação, e marca o que já está no pedido', async () => {
   await pedidoNaEtapaProdutos()
   expect(host.textContent).toContain('Mínimo R$ 8,00')
-  expect(host.textContent).toContain('Comprado 7')
+  expect(host.textContent).toContain('comprado 7')
   host.querySelector<HTMLButtonElement>('[aria-label="Ver observação de Bateria"]')!.click()
   await nextTick()
   expect(dialogo.message).toBe('linha 1\nlinha 2')
@@ -145,7 +145,7 @@ it('acima do crédito não inclui item', async () => {
 
 it('o valor unitário digitado vai para o item', async () => {
   await pedidoNaEtapaProdutos()
-  host.querySelector<HTMLButtonElement>('[aria-label="Ajustar preço e desconto"]')!.click()
+  host.querySelector<HTMLButtonElement>('[aria-label^="Ajustar preço e desconto"]')!.click()
   const campo = await vi.waitFor(() => {
     const el = document.querySelector<HTMLInputElement>('[data-campo="unitario"]')
     expect(el).toBeTruthy()
@@ -324,7 +324,7 @@ it('frete embutido usa a máscara', async () => {
 
 it('desconto do item em R$ usa a máscara; em % não', async () => {
   await pedidoNaEtapaProdutos()
-  host.querySelector<HTMLButtonElement>('[aria-label="Ajustar preço e desconto"]')!.click()
+  host.querySelector<HTMLButtonElement>('[aria-label^="Ajustar preço e desconto"]')!.click()
   expect(await digitar('desconto-item', '150')).toBe('R$ 1,50')
   const tipo = [...document.querySelectorAll('[role="radio"]')].find((b) => b.textContent === '%') as HTMLButtonElement
   tipo.click()

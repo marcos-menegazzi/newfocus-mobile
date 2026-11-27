@@ -214,6 +214,9 @@ body {
   .on-navy .skeleton { @apply bg-brand-500; }
 
   .section-title { @apply text-[15px] font-semibold text-ink-900; }
+  /* Etiqueta de dado do item (operação, tabela...); a destacada difere das condições do pedido. */
+  .tag { @apply inline-flex min-w-0 max-w-full items-baseline gap-1 rounded-md bg-ink-50 px-2 py-0.5 text-xs text-ink-700; }
+  .tag-destaque { @apply bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-300; }
   .meta { @apply text-[13px] text-ink-500; }
 
   .figure {

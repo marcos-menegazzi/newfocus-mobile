@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import EmptyState from '../components/EmptyState.vue'
 import FieldError from '../components/FieldError.vue'
+import ItemPedido, { type DetalheItem } from '../components/ItemPedido.vue'
+import LegendaDestaque from '../components/LegendaDestaque.vue'
 import Icon from '../components/Icon.vue'
 import LoadingState from '../components/LoadingState.vue'
 import SelectField from '../components/SelectField.vue'
@@ -167,6 +169,25 @@ const comissaoDoItem = (codigo: unknown) => {
   const c = comissoes.value.find((x) => String(x.codigo) === String(codigo))
   return c ? comCodigo(c.codigo, c.descricao) : String(codigo ?? '')
 }
+// Itens do mesmo pedido podem ter operação, condição, tabela e comissão próprias. Cada item
+// mostra as suas, e o que difere das condições do pedido sai destacado para a revisão.
+const normalizar = (v: unknown) => {
+  const t = String(v ?? '').trim()
+  return t !== '' && !Number.isNaN(Number(t)) ? String(Number(t)) : t.toUpperCase()
+}
+const difere = (doItem: unknown, doPedido: unknown) =>
+  normalizar(doPedido) !== '' && normalizar(doItem) !== '' && normalizar(doItem) !== normalizar(doPedido)
+function detalhesDoItem(i: any): DetalheItem[] {
+  const cab = store.cabecalho
+  return [
+    { label: 'Operação', valor: String(i.operacao ?? '').trim(), diverge: difere(i.operacao, cab.operacao) },
+    { label: 'Condição', valor: comCodigo(i.condicao, i.dcond), diverge: difere(i.condicao, cab.condpag) },
+    { label: 'Tabela', valor: tabelaDoItem(i.tabela), diverge: difere(i.tabela, cab.tabela) },
+    { label: 'Comissão', valor: comissaoDoItem(i.comissao), diverge: difere(i.comissao, cab.comissao) },
+  ].filter((d) => d.valor)
+}
+const itensDivergentes = computed(() => itens.value.some((i) => detalhesDoItem(i).some((d) => d.diverge)))
+const REVISAO_ITENS = 6
 const comissaoNome = computed(() => nome(comissoes.value, 'codigo', store.cabecalho.comissao, 'descricao'))
 const tipoLabel = computed(() => ({ S: 'Saída', E: 'Entrada', O: 'Orçamento' } as Record<string, string>)[store.cabecalho.tipo] ?? '')
 const razaoRevisao = computed(() => cliente.razao || store.cabecalho.cliente_nome)
@@ -805,12 +826,6 @@ async function gravarModal() {
 }
 
 // --- Itens ---
-function descontoLabel(row: any): string {
-  const d = Number(row.descto || 0)
-  if (d === 0) return '—'
-  return row.descper === 'S' ? `${d}%` : formatReal(d)
-}
-
 async function removerItem(row: any) {
   const ok = await confirmar({ title: 'Excluir este item?', message: `Produto ${row.codproduto} sai do pedido.`, confirmLabel: 'Excluir', danger: true })
   if (!ok) return
@@ -1160,6 +1175,13 @@ const acoes = computed(() => {
 // --- Termo / saldos ---
 const showSucata = ref(false)
 const sucataRows = ref<SaldoSucata[]>([])
+// O servidor manda saldos (quantidade) e outras linhas, como dias em aberto: número sai
+// como número, sem casas forçadas; o resto, como veio; vazio vira traço, não um zero falso.
+function valorSucata(v: string): string {
+  const t = (v ?? '').trim()
+  if (!t) return '—'
+  return /^-?\d+(\.\d+)?$/.test(t) ? formatNumero(t) : t
+}
 const sucataLoading = ref(false)
 const sucataErro = ref('')
 const showSaldos = ref(false)
@@ -1409,7 +1431,6 @@ watch(
             <span class="min-w-0 flex-1">
               <span v-if="cliente.codigo" class="block font-semibold truncate">{{ cliente.fantasia || cliente.razao }}</span>
               <span v-else class="block text-ink-400">Selecionar cliente</span>
-              <span v-if="cliente.codigo" class="block meta truncate">Crédito disponível R$ {{ formatReal(credito) }}</span>
             </span>
             <span v-if="aberto && !travado" class="link">{{ cliente.codigo ? 'Trocar' : 'Escolher' }}</span>
           </button>
@@ -1419,6 +1440,10 @@ watch(
               <div><dt class="meta text-xs">Código</dt><dd class="font-medium tabular-nums">{{ cliente.codigo }}</dd></div>
               <div><dt class="meta text-xs">CNPJ/CPF</dt><dd class="font-medium tabular-nums">{{ cliente.cnpj || '—' }}</dd></div>
               <div><dt class="meta text-xs">Limite de crédito</dt><dd class="font-medium tabular-nums">R$ {{ formatReal(cliente.limcred) }}</dd></div>
+              <div>
+                <dt class="meta text-xs">Crédito disponível</dt>
+                <dd class="font-medium tabular-nums" :class="{ 'text-danger-700': credito < 0 }">R$ {{ formatReal(credito) }}</dd>
+              </div>
               <div><dt class="meta text-xs">Saldo retorno sucata</dt><dd class="font-medium tabular-nums">{{ formatNumero(cliente.saldo) }}</dd></div>
             </dl>
             <div class="grid grid-cols-2 gap-2">
@@ -1553,11 +1578,12 @@ watch(
                 <div class="min-w-0">
                   <p class="text-[15px] font-medium leading-snug line-clamp-2">{{ p.descvis }}</p>
                   <p class="meta tabular-nums mt-0.5">Cód. {{ p.codigo }}, estoque {{ formatNumero(p.estoque) }}</p>
-                  <p class="meta tabular-nums mt-0.5">Mínimo R$ {{ formatReal(p.minimo) }}, Comprado {{ formatNumero(p.comprado) }}</p>
+                  <p class="meta tabular-nums mt-0.5">Mínimo R$ {{ formatReal(p.minimo) }}, comprado {{ formatNumero(p.comprado) }}</p>
                 </div>
-                <div class="flex items-center gap-1 shrink-0">
-                  <p class="text-[15px] font-semibold tabular-nums">R$ {{ formatReal(p.venda) }}</p>
-                  <button v-if="p.observacao" type="button" class="icon-btn" :aria-label="`Ver observação de ${p.descvis}`" @click="verObservacao(p)">
+                <!-- Preço sempre na borda direita, alinhado entre os cards; a observação fica abaixo dele. -->
+                <div class="-mr-2.5 flex shrink-0 flex-col items-end">
+                  <p class="pr-2.5 text-[15px] font-semibold tabular-nums">R$ {{ formatReal(p.venda) }}</p>
+                  <button v-if="p.observacao" type="button" class="icon-btn -mb-2" :aria-label="`Ver observação de ${p.descvis}`" @click="verObservacao(p)">
                     <Icon name="info" :size="18" />
                   </button>
                 </div>
@@ -1576,30 +1602,33 @@ watch(
                   <Icon name="trash" :size="16" /> Excluir
                 </button>
               </div>
-              <div class="flex flex-wrap items-center gap-2" :class="itemDoProduto(p) ? 'mt-1' : 'mt-3'">
-                <label class="w-16 shrink-0">
+              <!-- Colunas fixas: quantidade | campo principal | ajuste. Com unidade, ela ocupa a 1ª linha
+                   e Adicionar desce, sempre com o ajuste ao lado, na mesma coluna de todos os cards. -->
+              <div class="grid grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-2" :class="itemDoProduto(p) ? 'mt-1' : 'mt-3'">
+                <label class="min-w-0">
                   <span class="sr-only">Quantidade de {{ p.descvis }}</span>
                   <input v-model="p.qtd" type="number" inputmode="decimal" min="0" class="input min-h-11 py-1.5 text-center tabular-nums" placeholder="Qtd" :disabled="!aberto" />
                 </label>
                 <SelectField
                   v-if="unidadesProduto(p.codigo).length > 0"
                   v-model="p.unidade"
-                  class="min-w-28 flex-1"
+                  class="col-span-2 min-w-0"
                   size="sm"
                   :options="unidadeOptions(p.codigo)"
                   :title="`Selecionar unidade de ${p.descvis || p.descricao}`"
-                  aria-label="Unidade"
+                  :aria-label="`Unidade de ${p.descvis}`"
                 />
                 <button
                   type="button"
-                  class="btn btn-tonal btn-sm flex-1 min-w-32 px-2"
+                  class="btn btn-tonal btn-sm min-w-0 px-2"
+                  :class="{ 'col-span-2': unidadesProduto(p.codigo).length > 0 }"
                   :disabled="!aberto || (!!ocupado && ocupado !== `add-${p.codigo}`)"
                   :aria-busy="ocupado === `add-${p.codigo}`"
                   @click="executar(`add-${p.codigo}`, () => quickAdd(p))"
                 >
                   <Icon :name="itemDoProduto(p) ? 'check' : 'plus'" :size="16" /> {{ itemDoProduto(p) ? 'Atualizar' : 'Adicionar' }}
                 </button>
-                <button type="button" class="icon-btn border border-field" aria-label="Ajustar preço e desconto" :disabled="!aberto" @click="itemDoProduto(p) ? abrirModalItem(itemDoProduto(p)) : abrirModalProduto(p)">
+                <button type="button" class="icon-btn border border-field" :aria-label="`Ajustar preço e desconto de ${p.descvis}`" :disabled="!aberto" @click="itemDoProduto(p) ? abrirModalItem(itemDoProduto(p)) : abrirModalProduto(p)">
                   <Icon name="edit" :size="18" />
                 </button>
               </div>
@@ -1614,32 +1643,21 @@ watch(
               <button v-if="aberto" class="btn btn-tonal btn-sm" @click="prodView = 'buscar'">Buscar produtos</button>
             </EmptyState>
           </div>
-          <ul v-else class="list">
-            <li v-for="i in itens" :key="i.idpedido" class="flex items-start gap-2 pl-4 pr-2 py-3">
-              <div class="min-w-0 flex-1">
-                <p class="text-[15px] font-medium leading-snug line-clamp-2"><span class="tabular-nums">{{ i.codproduto }}</span> - {{ i.descricao }}</p>
-                <p class="meta tabular-nums mt-0.5">{{ i.qtd }}{{ i.unidade ? ` ${i.unidade}` : '' }} × R$ {{ formatReal(i.vlunit) }}</p>
-                <p v-if="descontoLabel(i) !== '—' || Number(i.descinc) > 0" class="text-xs text-brand-600 font-medium mt-0.5">
-                  {{ [descontoLabel(i) !== '—' && `Desconto ${descontoLabel(i)}`, Number(i.descinc) > 0 && `Desc. inc. ${formatNumero(i.descinc)}%`].filter(Boolean).join(', ') }}
-                </p>
-                <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 text-xs text-ink-500">
-                  <dt>Operação</dt><dd class="text-ink-700 break-words">{{ i.operacao || '—' }}</dd>
-                  <dt>Condição</dt><dd class="text-ink-700 break-words">{{ comCodigo(i.condicao, i.dcond) || '—' }}</dd>
-                  <dt>Comissão</dt><dd class="text-ink-700 break-words">{{ comissaoDoItem(i.comissao) || '—' }}</dd>
-                  <dt>Tabela</dt><dd class="text-ink-700 break-words">{{ tabelaDoItem(i.tabela) || '—' }}</dd>
-                </dl>
-              </div>
-              <p class="text-[15px] font-semibold tabular-nums shrink-0 pt-px">R$ {{ formatReal(i.vltotal) }}</p>
-              <div class="flex shrink-0 -mt-1">
-                <button class="icon-btn" :aria-label="`Editar ${i.descricao}`" :disabled="!aberto" @click="abrirModalItem(i)">
-                  <Icon name="edit" :size="18" />
-                </button>
-                <button class="icon-btn text-danger-600" :aria-label="`Excluir ${i.descricao}`" :disabled="!aberto" @click="removerItem(i)">
-                  <Icon name="trash" :size="18" />
-                </button>
-              </div>
-            </li>
-          </ul>
+          <template v-else>
+            <LegendaDestaque v-if="itensDivergentes" class="px-1" />
+            <ul class="list">
+              <li v-for="i in itens" :key="i.idpedido" class="px-4 py-3.5">
+                <ItemPedido
+                  :item="i"
+                  :detalhes="detalhesDoItem(i)"
+                  editavel
+                  :bloqueado="!aberto"
+                  @editar="abrirModalItem(i)"
+                  @excluir="removerItem(i)"
+                />
+              </li>
+            </ul>
+          </template>
         </template>
       </template>
 
@@ -1817,19 +1835,25 @@ watch(
           </div>
         </section>
 
-        <section class="panel p-4">
-          <div class="flex items-baseline justify-between gap-3 mb-1.5">
-            <h2 class="section-title">Produtos</h2>
-            <button class="link" @click="goTo(1)">{{ aberto ? 'Editar' : 'Ver' }}</button>
+        <section class="panel overflow-hidden">
+          <div class="px-4 pt-4 pb-3">
+            <div class="flex items-baseline justify-between gap-3">
+              <h2 class="section-title">Produtos</h2>
+              <button class="link shrink-0" @click="goTo(1); prodView = 'pedido'">{{ aberto ? 'Editar' : 'Ver' }}</button>
+            </div>
+            <LegendaDestaque v-if="itensDivergentes" class="mt-1.5" />
           </div>
-          <p v-if="itens.length === 0" class="text-sm text-ink-500">Nenhum item.</p>
-          <div v-for="i in itens.slice(0, 6)" :key="i.idpedido" class="flex justify-between gap-3 py-1.5 text-sm">
-            <span class="min-w-0 truncate">{{ i.qtd }} × {{ i.descricao }}</span>
-            <span class="font-semibold tabular-nums shrink-0">R$ {{ formatReal(i.vltotal) }}</span>
+          <p v-if="itens.length === 0" class="px-4 pb-4 text-sm text-ink-500">Nenhum item.</p>
+          <ul v-else class="divide-y divide-ink-100 border-t border-ink-100">
+            <li v-for="i in itens.slice(0, REVISAO_ITENS)" :key="i.idpedido" class="px-4 py-3">
+              <ItemPedido :item="i" :detalhes="detalhesDoItem(i)" />
+            </li>
+          </ul>
+          <div v-if="itens.length > REVISAO_ITENS" class="border-t border-ink-100 px-4 py-3">
+            <button class="link" @click="goTo(1); prodView = 'pedido'">
+              Ver todos os {{ itens.length }} itens
+            </button>
           </div>
-          <button v-if="itens.length > 6" class="mt-1 link" @click="goTo(1); prodView = 'pedido'">
-            Ver mais {{ itens.length - 6 }} {{ itens.length - 6 === 1 ? 'item' : 'itens' }}
-          </button>
         </section>
 
         <section class="panel p-4">
@@ -2061,7 +2085,7 @@ watch(
         <tbody>
           <tr v-for="(r, i) in sucataRows" :key="i">
             <td class="pl-0">{{ r.referencia }}</td>
-            <td class="num pr-0">{{ formatReal(r.saldo) }}</td>
+            <td class="num pr-0">{{ valorSucata(r.saldo) }}</td>
           </tr>
         </tbody>
       </table>

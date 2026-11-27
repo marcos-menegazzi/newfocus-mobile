@@ -15,6 +15,7 @@ import { useAoVoltar } from '../composables/useAoVoltar'
 import { useLastSync } from '../composables/useLastSync'
 import { useAuthStore } from '../stores/auth'
 import { APP_VERSION, VERSAO_COMPILACAO } from '../lib/appInfo'
+import { SINC_ATRASADA_MS, tempoDesde } from '../lib/tempo'
 import { useToast } from '../composables/useToast'
 
 interface CountRow { total: number }
@@ -28,7 +29,7 @@ interface PedidoRow {
   itens: number
 }
 
-const { lastSync } = useLastSync()
+const { lastSync, sincronizadoEm } = useLastSync()
 const auth = useAuthStore()
 const { notify } = useToast()
 
@@ -49,10 +50,33 @@ function pct(a: number, b: number): string {
   return b > 0 ? `${Math.round((a / b) * 100)}%` : '0%'
 }
 
+const iniciais = computed(() => (auth.usuario?.usuario ?? '').trim().slice(0, 2).toUpperCase())
+
+// Relógio da tela: atualiza ao abrir e ao voltar para o início.
+const agora = ref(new Date())
+
+// Uma linha diz tudo da sincronização: pedidos esperando envio vêm primeiro; depois, se está
+// atrasada (ou nunca foi feita); senão, há quanto tempo foi. Amarelo sempre com ícone e texto.
+const sinc = computed(() => {
+  const em = sincronizadoEm.value
+  const quando = em ? `Última ${tempoDesde(em, agora.value)}` : 'Nunca sincronizado'
+  if (pendencia.value > 0) {
+    const n = pendencia.value
+    return { alerta: true, icon: 'send', titulo: `${n} ${n === 1 ? 'pedido aguardando' : 'pedidos aguardando'} envio`, detalhe: `${quando}. Toque para sincronizar.` }
+  }
+  if (!em) return { alerta: true, icon: 'alert', titulo: 'Nunca sincronizado', detalhe: 'Toque para baixar clientes e produtos.' }
+  const titulo = `Sincronizado ${tempoDesde(em, agora.value)}`
+  if (agora.value.getTime() - em.getTime() >= SINC_ATRASADA_MS) {
+    return { alerta: true, icon: 'alert', titulo, detalhe: 'Preços e clientes podem estar desatualizados.' }
+  }
+  return { alerta: false, icon: 'sync', titulo, detalhe: lastSync.value }
+})
+
 const vendasLabel = computed(() => `${vendasQtd.value} ${vendasQtd.value === 1 ? 'pedido faturado' : 'pedidos faturados'}`)
 
 async function carregar() {
   mes.value = nomeMes()
+  agora.value = new Date()
   try {
     const [ind, [pend]] = await Promise.all([
       indicadores(periodoMes()),
@@ -82,20 +106,39 @@ useAoVoltar(carregar)
   <AppShell title="Início">
     <div class="page">
       <!-- Muitos vendedores recebem o aparelho já logado: usuário e versão ficam à vista. -->
-      <dl class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 px-1 text-[13px] text-ink-500">
-        <div class="flex gap-1">
-          <dt>Usuário</dt>
-          <dd class="font-semibold text-ink-700">{{ auth.usuario?.usuario }}</dd>
+      <section class="panel overflow-hidden" aria-label="Conta e sincronização">
+        <div class="flex items-center gap-3 px-4 py-3">
+          <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-sm font-semibold text-brand-600" aria-hidden="true">
+            {{ iniciais }}
+          </span>
+          <p class="min-w-0 flex-1">
+            <span class="block meta text-xs">Conectado como</span>
+            <span class="block truncate text-[15px] font-semibold">{{ auth.usuario?.usuario }}</span>
+          </p>
+          <p class="shrink-0 text-right">
+            <span class="block meta text-xs">Versão</span>
+            <span class="block text-[13px] font-medium tabular-nums text-ink-700">{{ APP_VERSION }} ({{ VERSAO_COMPILACAO }})</span>
+          </p>
         </div>
-        <div class="flex gap-1">
-          <dt>Versão</dt>
-          <dd class="font-semibold text-ink-700 tabular-nums">{{ APP_VERSION }} ({{ VERSAO_COMPILACAO }})</dd>
-        </div>
-        <div class="flex gap-1 basis-full">
-          <dt>Última sincronização:</dt>
-          <dd class="font-semibold text-ink-700 tabular-nums">{{ lastSync }}</dd>
-        </div>
-      </dl>
+        <RouterLink
+          :to="{ name: 'sync' }"
+          class="list-row flex items-center gap-3 border-t"
+          :class="sinc.alerta ? 'border-sun-400/40 bg-sun-100 text-sun-800 active:brightness-95' : 'border-ink-100'"
+        >
+          <span
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+            :class="sinc.alerta ? 'bg-sun-400/25' : 'bg-ink-50 text-ink-700'"
+            aria-hidden="true"
+          >
+            <Icon :name="sinc.icon" :size="20" />
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-[15px] font-semibold">{{ sinc.titulo }}</span>
+            <span class="block text-[13px] tabular-nums" :class="sinc.alerta ? '' : 'text-ink-500'">{{ sinc.detalhe }}</span>
+          </span>
+          <Icon name="chevron-right" :size="20" class="shrink-0 opacity-70" />
+        </RouterLink>
+      </section>
 
       <section class="rounded-3xl on-navy bg-brand-600 text-cream px-5 pt-5 pb-6" aria-labelledby="hero-title" :aria-busy="loading">
         <p id="hero-title" class="text-cream-dim text-[15px]">Vendas faturadas em {{ mes }}</p>
@@ -125,19 +168,6 @@ useAoVoltar(carregar)
           </div>
         </div>
       </section>
-
-      <RouterLink
-        v-if="pendencia > 0"
-        :to="{ name: 'sync' }"
-        class="flex items-center gap-3 rounded-2xl bg-sun-100 text-sun-800 px-4 py-3.5 transition active:scale-[0.99]"
-      >
-        <Icon name="send" />
-        <span class="flex-1 text-[15px]">
-          <strong class="font-semibold">{{ pendencia }} {{ pendencia === 1 ? 'pedido aguardando' : 'pedidos aguardando' }} envio.</strong>
-          Sincronize para enviar.
-        </span>
-        <Icon name="chevron-right" />
-      </RouterLink>
 
       <div class="grid grid-cols-3 gap-2">
         <RouterLink :to="{ name: 'pedido-novo' }" class="btn btn-primary flex-col gap-1 min-h-18 px-2 py-2 text-sm leading-tight text-center whitespace-normal">
